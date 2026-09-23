@@ -1,0 +1,32 @@
+# ---------------------------------------------------------------------------
+# Machine-specific overrides. Copy to  config.local.yaml  and edit.
+#
+#   config.yaml  (in git, shared defaults)
+#        <- config.local.yaml  (this file, NEVER committed — real secrets)
+#        <- environment variables (DUZTEC_SMTP_PASSWORD, DUZTEC_PORT, ...)
+#
+# Only include the keys you want to change; everything else falls back to
+# config.yaml, so a `git pull` never overwrites your server settings.
+# ---------------------------------------------------------------------------
+
+auth:
+  smtp:
+    # Zoho Mail (India)      : smtp.zoho.in       port 587
+    # Google Workspace       : smtp.gmail.com     port 587  (app password required)
+    # Microsoft 365          : smtp.office365.com port 587  (SMTP AUTH must be enabled)
+    # cPanel / shared hosting: mail.duztec.in     port 587 or 465
+    host: "smtp.zoho.in"
+    port: 587                      # 465 = implicit SSL, anything else = STARTTLS
+    username: "office@duztec.in"
+    password: "REPLACE-WITH-APP-PASSWORD"
+    from_addr: "Duztec CRM <office@duztec.in>"
+
+# Uncomment to change the real GSTIN / bank details used on quotation letterheads
+# without touching the shared config.yaml:
+# company:
+#   gstin: "27XXXXXXXXXXXXX"
+#   bank_details: "Bank: ____ · A/c No: ____ · IFSC: ____ · Branch: ____"
+
+# Uncomment to run on a different port:
+# app:
+#   port: 8016

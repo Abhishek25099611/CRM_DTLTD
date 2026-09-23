@@ -1,0 +1,111 @@
+# Duztec CRM — Sales (Enquiries / Quotations / Orders)
+app:
+  host: "127.0.0.1"
+  port: 8016
+  company_name: "Duztec Engineering Pvt. Ltd."
+  tagline: "Clean up the Air · Sales CRM"
+
+company:                       # used on the quotation letterhead — CONFIRM with accounts
+  address: "Plot No. A-109, Wagle Industrial Estate, Road No. 18, Wagle Estate MIDC, Thane - 400604, India"
+  cin: "U29300MH2018PTC317218"
+  gstin: "27XXXXXXXXXXXXX"     # <-- placeholder, replace with real GSTIN
+  email: "sales@duztec.in"
+  phone: ""
+  home_state: "Maharashtra"    # intra-state => CGST+SGST, else IGST
+  bank_details: "Bank: ____ · A/c No: ____ · IFSC: ____ · Branch: ____"
+
+numbering:
+  enquiry_prefix: "ENQ-2627-"  # ENQ-2627-001 ...
+  quote_prefix: "Q"            # continues the MIS series: Q00565 ...
+  quote_pad: 5
+
+quotation_defaults:
+  validity_days: 30
+  gst_pct: 18
+  delivery_terms: "8-10 weeks from technically & commercially clear PO"
+  payment_terms: "50% advance, 50% before dispatch"
+  notes: "Freight, transit insurance and unloading at site are in buyer's scope unless stated."
+
+paths:
+  db: "./data/crm.db"
+  logs: "./data/logs"
+  backup: "./data/backup"
+  mis_file: "../MIS 2026-27.xlsx"   # one-time import source
+
+geo:
+  # Known plant/city keywords -> pincode, used to place customers on the map when no pincode is set.
+  pincode_keywords:
+    dolvi: "402107"
+    thane: "400604"
+    lipl: "400604"
+    lechler: "400604"
+    vijaynagar: "583275"
+    vijayanagar: "583275"
+    toranagallu: "583275"
+    ballari: "583101"
+    hospet: "583201"
+    angul: "759106"
+    jajpur: "755026"
+    kalinganagar: "755026"
+    sambalpur: "768200"
+    jharsuguda: "768201"
+    paradip: "754142"
+    raigarh: "496001"
+    jamshedpur: "831001"
+    tsj: "831001"
+    bokaro: "827001"
+    renukoot: "231217"
+    hindalco: "231217"
+    tsk: "755026"
+    salem: "636001"
+  # Used to guess a customer's state from its name when state is blank (editable any time).
+  # Keyword (lowercase, substring match) -> state. "International" = shown outside the map.
+  state_keywords:
+    dolvi: Maharashtra
+    thane: Maharashtra
+    mumbai: Maharashtra
+    pune: Maharashtra
+    lipl: Maharashtra
+    lechler: Maharashtra
+    moglix: Maharashtra
+    vijaynagar: Karnataka
+    vijayanagar: Karnataka
+    ballari: Karnataka
+    bellary: Karnataka
+    hospet: Karnataka
+    toranagallu: Karnataka
+    angul: Odisha
+    jajpur: Odisha
+    sambalpur: Odisha
+    jharsuguda: Odisha
+    kalinganagar: Odisha
+    paradip: Odisha
+    bpsl: Odisha
+    raigarh: Chhattisgarh
+    jamshedpur: Jharkhand
+    tsj: Jharkhand
+    bokaro: Jharkhand
+    renukoot: Uttar Pradesh
+    hindalco: Uttar Pradesh
+    tsk: Odisha
+    salem: Tamil Nadu
+    oman: International
+    jsis: International
+    dangote: International
+
+auth:
+  allowed_domain: "duztec.in"        # only <name>@duztec.in emails can log in
+  admin_emails:                      # seeded as admins on startup; admins manage other users
+    - "office@duztec.in"
+    - "vasanirs@duztec.in"
+    - "abhishek.ghumare@lechlerindia.com"   # allowed as an explicit exception to the domain rule
+  rkz_codes:                         # optional RKZ seed for known users (admins can edit in the Users tab)
+    "vasanirs@duztec.in": "RV"
+  session_hours: 168                 # login valid for 7 days per device
+  otp_minutes: 10                    # OTP validity
+  smtp:                              # fill these to send OTPs by email (e.g. Zoho/Google Workspace SMTP)
+    host: ""                         # e.g. smtp.zoho.in — EMPTY = dev mode: OTP appears in the server log
+    port: 587
+    username: ""
+    password: ""
+    from_addr: "Duztec CRM <office@duztec.in>"

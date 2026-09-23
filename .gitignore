@@ -1,0 +1,29 @@
+# --- Python ---
+.venv/
+venv/
+.venv-dashboards/
+__pycache__/
+*.pyc
+
+# --- Live data: never in git (see HANDOFF.md §3) ---
+duztec_crm/data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# --- Machine-specific secrets ---
+config.local.yaml
+
+# --- Source business workbooks ---
+*.xlsx
+*.xls
+*.csv
+~$*
+
+# --- Retired project phase ---
+_archive/
+
+# --- OS noise ---
+.DS_Store
+Thumbs.db

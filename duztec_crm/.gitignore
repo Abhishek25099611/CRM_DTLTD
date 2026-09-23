@@ -1,0 +1,12 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+data/
+logs/
+*.log
+*.xlsx
+*.xls
+*.csv
+~$*
+data/*.db
