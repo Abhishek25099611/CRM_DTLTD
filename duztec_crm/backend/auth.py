@@ -1,7 +1,8 @@
-"""OTP login restricted to the Duztec email domain + user management."""
+"""Password login (email OTP to set/reset the password), restricted to the Duztec domain + user management."""
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 import smtplib
 from datetime import datetime, timedelta
@@ -31,8 +32,39 @@ CREATE TABLE IF NOT EXISTS sessions(
 """
 
 
+PW_ITERATIONS = 600_000
+PW_MIN_LEN = 8
+MAX_FAILED_LOGINS = 5
+LOCK_MINUTES = 15
+
+
 def _h(v: str) -> str:
     return hashlib.sha256(v.encode()).hexdigest()
+
+
+def _hash_pw(pw: str) -> str:
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), PW_ITERATIONS)
+    return f"pbkdf2_sha256${PW_ITERATIONS}${salt}${dk.hex()}"
+
+
+def _check_pw(pw: str, stored: str) -> bool:
+    try:
+        algo, iters, salt, digest = stored.split("$")
+    except (ValueError, AttributeError):
+        return False
+    if algo != "pbkdf2_sha256":
+        return False
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), int(iters))
+    return hmac.compare_digest(dk.hex(), digest)
+
+
+def _validate_pw(pw: str, email: str) -> None:
+    if len(pw) < PW_MIN_LEN:
+        raise HTTPException(422, {"error_type": "weak_password",
+                                  "detail": f"Password must be at least {PW_MIN_LEN} characters."})
+    if pw.strip().lower() in (email, email.split("@")[0]):
+        raise HTTPException(422, {"error_type": "weak_password", "detail": "Password must not be your email address."})
 
 
 def _domain() -> str:
@@ -59,8 +91,11 @@ def _check_add_domain(email: str) -> None:
 def init() -> None:
     con = db.connect()
     con.executescript(AUTH_SCHEMA)
-    if "rkz" not in [r[1] for r in con.execute("PRAGMA table_info(users)")]:
-        con.execute("ALTER TABLE users ADD COLUMN rkz TEXT DEFAULT ''")
+    cols = [r[1] for r in con.execute("PRAGMA table_info(users)")]
+    for col, ddl in (("rkz", "TEXT DEFAULT ''"), ("password_hash", "TEXT DEFAULT ''"),
+                     ("failed_logins", "INTEGER NOT NULL DEFAULT 0"), ("locked_until", "TEXT DEFAULT ''")):
+        if col not in cols:
+            con.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
     rkz_map = {str(k).strip().lower(): str(v).strip().upper()
                for k, v in (SETTINGS.auth.get("rkz_codes") or {}).items()}
     for e in SETTINGS.auth.get("admin_emails") or []:
@@ -107,10 +142,11 @@ def send_mail(to_addr: str, subject: str, body: str) -> bool:
 
 def _send_otp(email: str, code: str) -> bool:
     minutes = int(SETTINGS.auth.get("otp_minutes", 10))
-    body = (f"Your Duztec CRM login code is: {code}\n\n"
-            f"It is valid for {minutes} minutes. If you did not request this, ignore this email.")
+    body = (f"Your Duztec CRM verification code is: {code}\n\n"
+            f"Use it to set or reset your CRM password. It is valid for {minutes} minutes.\n"
+            f"If you did not request this, ignore this email — your password has not been changed.")
     try:
-        sent = send_mail(email, f"Duztec CRM login code: {code}", body)
+        sent = send_mail(email, f"Duztec CRM verification code: {code}", body)
     except Exception as e:  # noqa: BLE001 - a mail failure must never block login
         LOGGER.error("SMTP send failed for %s (%s: %s) — LOGIN OTP: %s", email, type(e).__name__, e, code)
         return False
@@ -123,9 +159,15 @@ class EmailIn(BaseModel):
     email: str = Field(min_length=5)
 
 
-class VerifyIn(BaseModel):
+class LoginIn(BaseModel):
+    email: str
+    password: str = Field(min_length=1, max_length=200)
+
+
+class SetPasswordIn(BaseModel):
     email: str
     code: str = Field(min_length=4, max_length=8)
+    password: str = Field(min_length=1, max_length=200)
 
 
 class UserIn(BaseModel):
@@ -157,15 +199,62 @@ def request_otp(body: EmailIn):
     mailed = _send_otp(email, code)
     return {"sent": True, "mailed": mailed,
             "message": "Code sent to your email." if mailed else
-            "SMTP is not configured yet — the code was written to the CRM server log; ask the administrator."}
+            "The email could not be sent — the code was written to the CRM server log; ask the administrator."}
 
 
-@router.post("/verify")
-def verify(body: VerifyIn, response: Response):
+def _start_session(con, email: str, response: Response, action: str) -> None:
+    token = secrets.token_urlsafe(32)
+    hours = int(SETTINGS.auth.get("session_hours", 168))
+    exp = (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+    con.execute("INSERT INTO sessions(token_hash,email,expires_at,created_at) VALUES(?,?,?,?)",
+                (_h(token), email, exp, db.now()))
+    con.execute("UPDATE users SET last_login=?, failed_logins=0, locked_until='' WHERE email=?", (db.now(), email))
+    con.execute("DELETE FROM sessions WHERE expires_at < ?", (db.now(),))
+    db.log_activity(con, "user", None, action, email)
+    response.set_cookie(COOKIE, token, max_age=hours * 3600, httponly=True, samesite="lax")
+
+
+@router.post("/login")
+def login(body: LoginIn, response: Response):
     email = _norm_email(body.email)
+    bad = HTTPException(401, {"error_type": "bad_login", "detail": "Incorrect email or password."})
     con = db.connect()
+    u = con.execute("SELECT * FROM users WHERE email=? AND active=1", (email,)).fetchone()
+    if not u:
+        con.close(); raise bad
+    if u["locked_until"] and u["locked_until"] > db.now():
+        con.close()
+        raise HTTPException(429, {"error_type": "locked",
+                                  "detail": f"Too many wrong passwords. Try again after {u['locked_until'][11:16]}, "
+                                            "or use \"First login / Forgot password\"."})
+    if not u["password_hash"]:
+        con.close()
+        raise HTTPException(409, {"error_type": "no_password",
+                                  "detail": "No password set yet — verify your email to create one."})
+    if not _check_pw(body.password, u["password_hash"]):
+        fails = int(u["failed_logins"] or 0) + 1
+        lock = ""
+        if fails >= MAX_FAILED_LOGINS:
+            lock = (datetime.now() + timedelta(minutes=LOCK_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+            fails = 0
+            LOGGER.warning("Login locked for %s until %s after %d wrong passwords", email, lock, MAX_FAILED_LOGINS)
+        con.execute("UPDATE users SET failed_logins=?, locked_until=? WHERE id=?", (fails, lock, u["id"]))
+        con.commit(); con.close()
+        raise bad
+    _start_session(con, email, response, "login")
+    con.commit(); con.close()
+    return {"ok": True, "email": email}
+
+
+@router.post("/set-password")
+def set_password(body: SetPasswordIn, response: Response):
+    """Verify the emailed code, then set the (first or new) password and log in."""
+    email = _norm_email(body.email)
+    _validate_pw(body.password, email)
+    con = db.connect()
+    u = con.execute("SELECT * FROM users WHERE email=? AND active=1", (email,)).fetchone()
     o = con.execute("SELECT * FROM otps WHERE email=? ORDER BY id DESC LIMIT 1", (email,)).fetchone()
-    if not o or o["expires_at"] < db.now():
+    if not u or not o or o["expires_at"] < db.now():
         con.close()
         raise HTTPException(401, {"error_type": "otp_expired", "detail": "Code expired — request a new one."})
     if o["attempts"] >= 5:
@@ -176,16 +265,11 @@ def verify(body: VerifyIn, response: Response):
         con.commit(); con.close()
         raise HTTPException(401, {"error_type": "otp_wrong", "detail": "Incorrect code."})
     con.execute("DELETE FROM otps WHERE email=?", (email,))
-    token = secrets.token_urlsafe(32)
-    hours = int(SETTINGS.auth.get("session_hours", 168))
-    exp = (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
-    con.execute("INSERT INTO sessions(token_hash,email,expires_at,created_at) VALUES(?,?,?,?)",
-                (_h(token), email, exp, db.now()))
-    con.execute("UPDATE users SET last_login=? WHERE email=?", (db.now(), email))
-    con.execute("DELETE FROM sessions WHERE expires_at < ?", (db.now(),))
-    db.log_activity(con, "user", None, "login", email)
+    first = not u["password_hash"]
+    con.execute("UPDATE users SET password_hash=? WHERE id=?", (_hash_pw(body.password), u["id"]))
+    con.execute("DELETE FROM sessions WHERE email=?", (email,))   # a reset signs out every other device
+    _start_session(con, email, response, "password_set" if first else "password_reset")
     con.commit(); con.close()
-    response.set_cookie(COOKIE, token, max_age=hours * 3600, httponly=True, samesite="lax")
     return {"ok": True, "email": email}
 
 
@@ -234,7 +318,8 @@ def require_admin(request: Request) -> dict:
 def list_users(request: Request):
     require_admin(request)
     con = db.connect()
-    out = db.rows(con.execute("SELECT id,email,name,role,active,rkz,created_at,last_login FROM users ORDER BY email"))
+    out = db.rows(con.execute("SELECT id,email,name,role,active,rkz,created_at,last_login,"
+                              "(COALESCE(password_hash,'')!='') AS has_password FROM users ORDER BY email"))
     con.close()
     return out
 

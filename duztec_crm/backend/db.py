@@ -95,7 +95,7 @@ def next_enq_no(con) -> str:
 def next_quote_no(con) -> str:
     pre = SETTINGS.numbering.get("quote_prefix", "Q")
     pad = int(SETTINGS.numbering.get("quote_pad", 5))
-    best = 0
+    best = int(SETTINGS.numbering.get("quote_start", 1)) - 1   # floor: first number when the table is empty
     for r in con.execute("SELECT quote_no FROM quotations WHERE quote_no LIKE ?", (pre + "%",)):
         tail = r["quote_no"][len(pre):]
         if tail.isdigit():

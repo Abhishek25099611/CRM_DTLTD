@@ -36,27 +36,48 @@
     $('user-email').textContent = ME.email + (ME.role === 'admin' ? ' (admin)' : '');
     if (ME.role === 'admin') $('nav-users').classList.remove('hidden');
   }
-  $('login-send').onclick = async () => {
+  async function afterLogin() {
+    loginMsg(''); $('login-password').value = ''; $('login-new-pw').value = ''; $('login-new-pw2').value = '';
+    ME = await api('/api/auth/me'); onLoggedIn();
+    CFG = await api('/api/config'); switchView('dash');
+  }
+  function showReset(msg) {
     const email = $('login-email').value.trim();
+    if (!email) { loginMsg('Enter your email first.', true); $('login-email').focus(); return; }
+    $('login-step1').classList.add('hidden'); $('login-step2').classList.remove('hidden');
+    $('login-reset-fields').classList.add('hidden'); $('login-send').classList.remove('hidden');
+    $('login-sent-to').textContent = email;
+    loginMsg(msg || '');
+  }
+  $('login-submit').onclick = async () => {
+    const email = $('login-email').value.trim(), password = $('login-password').value;
+    if (!email || !password) { loginMsg('Enter your email and password.', true); return; }
+    loginMsg('Logging in…');
+    try { await api('/api/auth/login', { body: { email, password } }); await afterLogin(); }
+    catch (e) { if (/No password set/.test(e.message)) showReset(e.message); else loginMsg(e.message, true); }
+  };
+  $('login-forgot').onclick = () => showReset();
+  $('login-send').onclick = async () => {
     loginMsg('Sending…');
     try {
-      const r = await api('/api/auth/request-otp', { body: { email } });
-      $('login-step1').classList.add('hidden'); $('login-step2').classList.remove('hidden');
-      $('login-sent-to').textContent = email; $('login-code').value = ''; $('login-code').focus();
+      const r = await api('/api/auth/request-otp', { body: { email: $('login-email').value.trim() } });
+      $('login-send').classList.add('hidden'); $('login-reset-fields').classList.remove('hidden');
+      $('login-code').value = ''; $('login-code').focus();
       loginMsg(r.message, !r.mailed);
     } catch (e) { loginMsg(e.message, true); }
   };
-  $('login-verify').onclick = async () => {
+  $('login-set-pw').onclick = async () => {
+    const pw = $('login-new-pw').value;
+    if (pw !== $('login-new-pw2').value) { loginMsg('The two passwords do not match.', true); return; }
     try {
-      await api('/api/auth/verify', { body: { email: $('login-email').value.trim(), code: $('login-code').value.trim() } });
-      loginMsg('');
-      ME = await api('/api/auth/me'); onLoggedIn();
-      CFG = await api('/api/config'); switchView('dash');
+      await api('/api/auth/set-password', { body: { email: $('login-email').value.trim(), code: $('login-code').value.trim(), password: pw } });
+      await afterLogin(); flash('Password saved — use it next time you log in');
     } catch (e) { loginMsg(e.message, true); }
   };
   $('login-back').onclick = () => { $('login-step2').classList.add('hidden'); $('login-step1').classList.remove('hidden'); loginMsg(''); };
-  $('login-code').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-verify').click(); });
-  $('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-send').click(); });
+  $('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-password').focus(); });
+  $('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-submit').click(); });
+  $('login-new-pw2').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-set-pw').click(); });
   $('btn-logout').onclick = async () => { await api('/api/auth/logout', { method: 'POST' }); location.reload(); };
 
   const SP = { won: 'won', lost: 'lost', cold: 'cold', sent: 'sent', draft: 'draft', new: 'new', qualified: 'qualified', quoted: 'quoted', dropped: 'dropped' };
@@ -501,11 +522,11 @@
         <tbody>${ov.by_rkz.map(r => `<tr><td><b>${esc(r.rkz)}</b></td><td class="num">${r.enquiries}</td><td class="num">${r.quotations}</td><td class="num">${r.orders}</td></tr>`).join('')}
         <tr class="row-warning"><td><b>Unassigned</b></td><td class="num">${ov.unassigned.enquiries}</td><td class="num">${ov.unassigned.quotations}</td><td class="num">${ov.unassigned.orders}</td></tr></tbody></table></div>
         <div class="muted small" style="margin-top:6px">To assign old records: use the ✎ next to Salesperson/RKZ in the Quotations and Orders tables, or "Assign RKZ" on an enquiry card. Records without an RKZ are invisible to sales engineers (admins always see them).</div></section>` : ''}
-      <section class="card"><div class="table-wrap"><table><thead><tr><th>Email</th><th>Name</th><th>RKZ</th><th>Role</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
+      <section class="card"><div class="table-wrap"><table><thead><tr><th>Email</th><th>Name</th><th>RKZ</th><th>Role</th><th>Status</th><th>Password</th><th>Last login</th><th>Actions</th></tr></thead>
       <tbody>${list.map(u => `<tr class="${u.active ? '' : 'row-critical'}"><td><b>${esc(u.email)}</b></td><td>${esc(u.name)}</td>
         <td><b>${esc(u.rkz || '—')}</b> <button class="btn small" data-rkz="${u.id}" title="Edit RKZ code">✎</button></td>
         <td>${pill(u.role === 'admin' ? 'won' : 'sent').replace('>won<', '>admin<').replace('>sent<', '>user<')}</td>
-        <td>${u.active ? 'Active' : 'Deactivated'}</td><td>${esc(u.last_login || 'never')}</td>
+        <td>${u.active ? 'Active' : 'Deactivated'}</td><td>${u.has_password ? 'Set' : '<span class="muted">Not set yet</span>'}</td><td>${esc(u.last_login || 'never')}</td>
         <td class="actions-cell">
           <button class="btn small" data-role="${u.id}" data-cur="${u.role}">${u.role === 'admin' ? 'Make user' : 'Make admin'}</button>
           <button class="btn small ${u.active ? 'danger' : 'secondary'}" data-toggle="${u.id}">${u.active ? 'Deactivate' : 'Reactivate'}</button>
@@ -520,7 +541,7 @@
         <div class="full"><button class="btn primary" id="nu-save">Add User</button></div></div>`);
       $('nu-save').onclick = async () => { try {
         await api('/api/auth/users', { body: { email: $('nu-email').value, name: $('nu-name').value, role: $('nu-role').value, rkz: $('nu-rkz').value } });
-        closeModal(); flash('User added — they can now log in with an OTP'); renderUsers();
+        closeModal(); flash('User added — on first login they choose "First login / Forgot password" to set a password'); renderUsers();
       } catch (e) { flash(e.message, false); } };
     };
     const upd = async (u, patch) => { try {
