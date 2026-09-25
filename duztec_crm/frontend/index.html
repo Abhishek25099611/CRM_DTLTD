@@ -45,17 +45,28 @@
   <div class="login-card">
     <img src="/static/duztec-logo.png" alt="Duztec Engineering" style="height:52px">
     <h2 style="margin:14px 0 4px">Sales CRM Login</h2>
-    <p class="muted small" style="margin:0 0 14px">Sign in with your <b>@duztec.in</b> email (or a registered admin email). A one-time code will be sent to you.</p>
+    <p class="muted small" style="margin:0 0 14px">Sign in with your <b>@duztec.in</b> email (or a registered admin email) and password.</p>
     <div id="login-step1">
       <label class="muted small">Email</label>
-      <input id="login-email" type="email" placeholder="yourname@duztec.in" autocomplete="email">
-      <button class="btn primary" id="login-send" style="width:100%;margin-top:10px">Send Login Code</button>
+      <input id="login-email" type="email" placeholder="yourname@duztec.in" autocomplete="username">
+      <label class="muted small" style="display:block;margin-top:8px">Password</label>
+      <input id="login-password" type="password" autocomplete="current-password">
+      <button class="btn primary" id="login-submit" style="width:100%;margin-top:10px">Log in</button>
+      <button class="btn" id="login-forgot" style="width:100%;margin-top:6px">First login / Forgot password</button>
     </div>
     <div id="login-step2" class="hidden">
-      <label class="muted small">6-digit code sent to <span id="login-sent-to"></span></label>
-      <input id="login-code" inputmode="numeric" maxlength="6" placeholder="••••••" style="letter-spacing:6px;text-align:center;font-size:20px">
-      <button class="btn primary" id="login-verify" style="width:100%;margin-top:10px">Verify &amp; Login</button>
-      <button class="btn" id="login-back" style="width:100%;margin-top:6px">Use a different email</button>
+      <p class="muted small" style="margin:0 0 8px">We will email a 6-digit code to <b id="login-sent-to"></b> to confirm it is you, then you can choose a password.</p>
+      <button class="btn primary" id="login-send" style="width:100%">Send Code</button>
+      <div id="login-reset-fields" class="hidden">
+        <label class="muted small" style="display:block;margin-top:10px">6-digit code</label>
+        <input id="login-code" inputmode="numeric" maxlength="6" placeholder="••••••" autocomplete="one-time-code" style="letter-spacing:6px;text-align:center;font-size:20px">
+        <label class="muted small" style="display:block;margin-top:8px">New password (at least 8 characters)</label>
+        <input id="login-new-pw" type="password" autocomplete="new-password">
+        <label class="muted small" style="display:block;margin-top:8px">Confirm new password</label>
+        <input id="login-new-pw2" type="password" autocomplete="new-password">
+        <button class="btn primary" id="login-set-pw" style="width:100%;margin-top:10px">Set Password &amp; Log in</button>
+      </div>
+      <button class="btn" id="login-back" style="width:100%;margin-top:6px">Back to login</button>
     </div>
     <div id="login-msg" class="muted small" style="margin-top:10px;min-height:18px"></div>
   </div>

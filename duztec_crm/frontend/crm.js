@@ -48,27 +48,48 @@
       ping(); window.__hb = setInterval(ping, 60000);
     }
   }
-  $('login-send').onclick = async () => {
+  async function afterLogin() {
+    loginMsg(''); $('login-password').value = ''; $('login-new-pw').value = ''; $('login-new-pw2').value = '';
+    ME = await api('/api/auth/me'); onLoggedIn();
+    CFG = await api('/api/config'); switchView('dash');
+  }
+  function showReset(msg) {
     const email = $('login-email').value.trim();
+    if (!email) { loginMsg('Enter your email first.', true); $('login-email').focus(); return; }
+    $('login-step1').classList.add('hidden'); $('login-step2').classList.remove('hidden');
+    $('login-reset-fields').classList.add('hidden'); $('login-send').classList.remove('hidden');
+    $('login-sent-to').textContent = email;
+    loginMsg(msg || '');
+  }
+  $('login-submit').onclick = async () => {
+    const email = $('login-email').value.trim(), password = $('login-password').value;
+    if (!email || !password) { loginMsg('Enter your email and password.', true); return; }
+    loginMsg('Logging in…');
+    try { await api('/api/auth/login', { body: { email, password } }); await afterLogin(); }
+    catch (e) { if (/No password set/.test(e.message)) showReset(e.message); else loginMsg(e.message, true); }
+  };
+  $('login-forgot').onclick = () => showReset();
+  $('login-send').onclick = async () => {
     loginMsg('Sending…');
     try {
-      const r = await api('/api/auth/request-otp', { body: { email } });
-      $('login-step1').classList.add('hidden'); $('login-step2').classList.remove('hidden');
-      $('login-sent-to').textContent = email; $('login-code').value = ''; $('login-code').focus();
+      const r = await api('/api/auth/request-otp', { body: { email: $('login-email').value.trim() } });
+      $('login-send').classList.add('hidden'); $('login-reset-fields').classList.remove('hidden');
+      $('login-code').value = ''; $('login-code').focus();
       loginMsg(r.message, !r.mailed);
     } catch (e) { loginMsg(e.message, true); }
   };
-  $('login-verify').onclick = async () => {
+  $('login-set-pw').onclick = async () => {
+    const pw = $('login-new-pw').value;
+    if (pw !== $('login-new-pw2').value) { loginMsg('The two passwords do not match.', true); return; }
     try {
-      await api('/api/auth/verify', { body: { email: $('login-email').value.trim(), code: $('login-code').value.trim() } });
-      loginMsg('');
-      ME = await api('/api/auth/me'); onLoggedIn();
-      CFG = await api('/api/config'); switchView('dash');
+      await api('/api/auth/set-password', { body: { email: $('login-email').value.trim(), code: $('login-code').value.trim(), password: pw } });
+      await afterLogin(); flash('Password saved — use it next time you log in');
     } catch (e) { loginMsg(e.message, true); }
   };
   $('login-back').onclick = () => { $('login-step2').classList.add('hidden'); $('login-step1').classList.remove('hidden'); loginMsg(''); };
-  $('login-code').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-verify').click(); });
-  $('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-send').click(); });
+  $('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-password').focus(); });
+  $('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-submit').click(); });
+  $('login-new-pw2').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-set-pw').click(); });
   $('btn-logout').onclick = async () => { await api('/api/auth/logout', { method: 'POST' }); location.reload(); };
 
   const SP = { won: 'won', lost: 'lost', cold: 'cold', sent: 'sent', draft: 'draft', new: 'new', qualified: 'qualified', quoted: 'quoted', dropped: 'dropped',
@@ -746,15 +767,16 @@
         <div class="table-wrap"><table><thead><tr><th>RKZ</th><th class="num">Enquiries</th><th class="num">Quotations</th><th class="num">Orders</th></tr></thead>
         <tbody>${ov.by_rkz.map(r => `<tr><td><b>${esc(r.rkz)}</b></td><td class="num">${r.enquiries}</td><td class="num">${r.quotations}</td><td class="num">${r.orders}</td></tr>`).join('')}
         <tr class="row-warning"><td><b>Unassigned</b></td><td class="num">${ov.unassigned.enquiries}</td><td class="num">${ov.unassigned.quotations}</td><td class="num">${ov.unassigned.orders}</td></tr></tbody></table></div>
-        <div class="muted small" style="margin-top:6px">To assign old records: use the ✎ next to RKZ in the Quotations and Orders tables, or "Assign RKZ" on an enquiry card. Records without an RKZ are invisible to sales engineers (admins and viewers always see them).</div></section>` : ''}
-      <section class="card"><div class="table-wrap"><table><thead><tr><th>Email</th><th>Name</th><th>Presence</th><th>RKZ</th><th>Role</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
+        <div class="muted small" style="margin-top:6px">To assign old records: use the ✎ next to Salesperson/RKZ in the Quotations and Orders tables, or "Assign RKZ" on an enquiry card. Records without an RKZ are invisible to sales engineers (admins and viewers always see them).</div></section>` : ''}
+      <section class="card"><div class="table-wrap"><table><thead><tr><th>Email</th><th>Name</th><th>Presence</th><th>RKZ</th><th>Role</th><th>Status</th><th>Password</th><th>Last login</th><th>Actions</th></tr></thead>
       <tbody>${list.map(u => `<tr class="${u.active ? '' : 'row-critical'}"><td><b>${esc(u.email)}</b></td><td>${esc(u.name)}</td>
         <td><span class="presence ${esc(u.presence || 'out')}"></span>${{ active: 'Active', idle: 'Idle', out: 'Out' }[u.presence] || 'Out'}${u.last_seen ? `<div class="muted small" title="last seen">${esc(u.last_seen.slice(5, 16))}</div>` : ''}</td>
         <td><b>${esc(u.rkz || '—')}</b> <button class="btn small" data-rkz="${u.id}" title="Edit RKZ code">✎</button></td>
         <td><select class="btn small" data-rolesel="${u.id}" style="text-transform:none">${Object.entries(ROLE_LABEL).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
-        <td>${u.active ? 'Active' : 'Deactivated'}</td><td>${esc(u.last_login || 'never')}</td>
+        <td>${u.active ? 'Active' : 'Deactivated'}</td><td>${u.has_password ? 'Set' : '<span class="muted">Not set yet</span>'}</td><td>${esc(u.last_login || 'never')}</td>
         <td class="actions-cell"><button class="btn small ${u.active ? 'danger' : 'secondary'}" data-toggle="${u.id}">${u.active ? 'Deactivate' : 'Reactivate'}</button></td></tr>`).join('')}</tbody></table></div></section>
       <div class="muted small" style="margin-top:8px">RKZ = sales engineer code (e.g. RV). Sales engineers see only records carrying their RKZ; admins see everything; view-only users see everything but cannot create or change anything.
+      Password = whether the person has set one yet (new users choose it via "First login / Forgot password" on the login screen).
       Presence = the CRM tab open in a browser (Active &lt; 5 min, Idle &lt; 30 min, otherwise Out) — it is not a measure of work.</div>`;
     $('btn-new-user').onclick = () => {
       openModal('Add User', `<div class="modal-form">
@@ -765,7 +787,7 @@
         <div class="full"><button class="btn primary" id="nu-save">Add User</button></div></div>`);
       $('nu-save').onclick = async () => { try {
         await api('/api/auth/users', { body: { email: $('nu-email').value, name: $('nu-name').value, role: $('nu-role').value, rkz: $('nu-rkz').value } });
-        closeModal(); flash('User added — they can now log in with an OTP'); renderUsers();
+        closeModal(); flash('User added — on first login they choose "First login / Forgot password" to set a password'); renderUsers();
       } catch (e) { flash(e.message, false); } };
     };
     $('btn-login-history').onclick = () => loginHistory();
@@ -781,7 +803,8 @@
 
   async function loginHistory(emailFilter = '', days = 30) {
     const rows = await api('/api/auth/login-history?days=' + days + (emailFilter ? '&email=' + encodeURIComponent(emailFilter) : ''));
-    const lbl = { login: 'Logged in', logout: 'Logged out', session_expired: 'Session expired' };
+    const lbl = { login: 'Logged in', logout: 'Logged out', session_expired: 'Session expired',
+                  password_set: 'Password set (first login)', password_reset: 'Password reset' };
     openModal('Login history', `
       <div class="filter-actions" style="margin-bottom:10px">
         <input id="lh-email" placeholder="filter by email" value="${esc(emailFilter)}" style="padding:6px 10px;border:1px solid var(--line);border-radius:6px">
@@ -789,7 +812,7 @@
         <button class="btn" id="lh-go">Apply</button>
         <a class="btn secondary" href="/api/export/logins.xlsx">Export Excel</a></div>
       <div class="table-wrap"><table><thead><tr><th>When</th><th>Event</th><th>User</th></tr></thead>
-      <tbody>${rows.map(r => `<tr><td>${esc(r.at)}</td><td>${pill(r.action === 'login' ? 'won' : r.action === 'logout' ? 'sent' : 'cold', lbl[r.action] || r.action)}</td><td>${esc(r.email)}</td></tr>`).join('') || '<tr class="empty"><td colspan="3">No events in this period</td></tr>'}</tbody></table></div>
+      <tbody>${rows.map(r => `<tr><td>${esc(r.at)}</td><td>${pill(/^(login|password_)/.test(r.action) ? 'won' : r.action === 'logout' ? 'sent' : 'cold', lbl[r.action] || r.action)}</td><td>${esc(r.email)}</td></tr>`).join('') || '<tr class="empty"><td colspan="3">No events in this period</td></tr>'}</tbody></table></div>
       <div class="muted small" style="margin-top:6px">${rows.length} event(s). Logins are recorded at OTP verification; logouts when the user clicks Logout; expiries when a 7-day session lapses.</div>`);
     $('lh-go').onclick = () => loginHistory($('lh-email').value.trim(), +$('lh-days').value);
   }

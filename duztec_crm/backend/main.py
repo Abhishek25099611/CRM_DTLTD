@@ -18,7 +18,8 @@ FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
 app = FastAPI(title=f"{SETTINGS.company_name} — Sales CRM", version="2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-PUBLIC_PATHS = ("/api/auth/request-otp", "/api/auth/verify", "/api/auth/me", "/api/auth/logout", "/api/health")
+PUBLIC_PATHS = ("/api/auth/login", "/api/auth/request-otp", "/api/auth/set-password",
+                "/api/auth/me", "/api/auth/logout", "/api/health")
 
 
 VIEWER_ALLOWED_WRITES = ("/api/auth/logout", "/api/auth/heartbeat")

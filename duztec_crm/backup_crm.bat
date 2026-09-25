@@ -4,8 +4,13 @@ REM Schedule daily (~20:00) in Task Scheduler. Copy data\backup off-machine week
 setlocal
 cd /d "%~dp0"
 if not exist "data\backup" mkdir "data\backup"
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set DT=%%I
-set STAMP=%DT:~0,8%_%DT:~8,6%
+REM wmic is removed on current Windows 11 builds; PowerShell gives a locale-independent stamp.
+set STAMP=
+for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set STAMP=%%I
+if not defined STAMP (
+  echo [%date% %time%] BACKUP FAILED: could not read timestamp >> data\logs\backup.log
+  exit /b 1
+)
 copy /y "data\crm.db" "data\backup\crm_%STAMP%.db" >nul
 if errorlevel 1 (
   echo [%date% %time%] BACKUP FAILED >> data\logs\backup.log

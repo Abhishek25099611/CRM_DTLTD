@@ -170,7 +170,8 @@ def export(register: str, request: Request):
     if register == "logins":
         if not _is_admin(request):
             con.close(); raise HTTPException(403, {"error_type": "forbidden", "detail": "Admin access required."})
-        queries["logins"] = ("SELECT at, action, detail FROM activity WHERE entity_type='user' AND action IN ('login','logout','session_expired') ORDER BY id DESC", ())
+        queries["logins"] = ("SELECT at, action, detail FROM activity WHERE entity_type='user' "
+                             "AND action IN ('login','logout','session_expired','password_set','password_reset') ORDER BY id DESC", ())
     if register == "lost":
         data = [{k: r[k] for k in ("quote_no", "rev", "date", "lost_on", "customer", "end_customer", "product", "value",
                                    "lost_reason", "salesperson", "type", "enq_no")} for r in _lost_rows(con, sc)]

@@ -97,7 +97,6 @@ MIGRATIONS = [
     ("quotations", "guarantee", "TEXT DEFAULT ''"),
     ("quotations", "sent_at", "TEXT DEFAULT ''"),        # first time the quotation was marked Sent (48-h SLA)
     ("customers", "end_customer", "TEXT DEFAULT ''"),    # e.g. LIPL supplying JSW Dolvi
-    ("users", "last_seen", "TEXT DEFAULT ''"),           # browser heartbeat for Active / Idle / Out
     ("quotation_items", "product_id", "INTEGER"),        # link to the Products master (specifications on print)
 ]
 
@@ -151,7 +150,7 @@ def next_enq_no(con) -> str:
 def next_quote_no(con) -> str:
     pre = SETTINGS.numbering.get("quote_prefix", "Q")
     pad = int(SETTINGS.numbering.get("quote_pad", 5))
-    best = 0
+    best = int(SETTINGS.numbering.get("quote_start", 1)) - 1   # floor: first number when the table is empty
     for r in con.execute("SELECT quote_no FROM quotations WHERE quote_no LIKE ?", (pre + "%",)):
         tail = r["quote_no"][len(pre):]
         if tail.isdigit():

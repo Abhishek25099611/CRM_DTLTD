@@ -20,7 +20,7 @@ sections 1–7 before the first install; sections 8–15 are operational referen
 | Customers | Master with GSTIN, state, pincode, contacts |
 | Follow-ups | Dated reminders with due/overdue list |
 | Dashboard | KPIs, funnel, quotations-by-month, **India map** (pincode bubbles or state heat) |
-| Users | OTP login, admin/engineer/viewer roles, **RKZ codes** with per-engineer data isolation |
+| Users | Password login (emailed code to set/reset), admin/engineer/viewer roles, **RKZ codes** with per-engineer data isolation |
 | Documents | Files attached to customers, enquiries, quotations and orders (offers, costing sheets, drawings, customer PO PDF) — stored under `data/uploads/`, download only when logged in |
 | SLA | Enquiry → quotation 48-working-hour timer (Mon–Sat 09:00–18:00) with badges and a dashboard KPI |
 | Products | Master list (code, HSN, unit, rate, specification) feeding a dropdown on quotation lines; specifications print on the quotation |
@@ -59,7 +59,7 @@ Duztec_Dashbaord/                 <- repository root
     │   ├── main.py               app factory: login middleware, startup, routers, static files
     │   ├── config.py             YAML + config.local.yaml + env vars -> Settings singleton
     │   ├── db.py                 SQLite schema, numbering, state/pincode backfill, backup
-    │   ├── auth.py               OTP login, sessions, user management, send_mail()
+    │   ├── auth.py               password login, emailed-code reset, sessions, user management, send_mail()
     │   ├── check_smtp.py         standalone "does email work?" test
     │   ├── schemas.py            Pydantic request models
     │   ├── services.py           RKZ scoping, quotation totals, geo helpers
@@ -101,7 +101,7 @@ Adding a feature = one new `routes_*.py` + one line in `main.py`. The frontend i
 - ~500 MB free disk for app + venv; data grows slowly (current DB ≈ 100 KB)
 - **Wired LAN, static IP** — users bookmark `http://<ip>:8016/`
 - **UPS strongly recommended** — SQLite plus sudden power loss is the main data-loss risk
-- Outbound TCP **587** (or 465) open for sending OTP emails
+- Outbound TCP **587** (or 465) open for sending login-code emails (first login / password reset)
 
 Hardware: any modern mini-PC/desktop is far more than enough (the app idles at ~150 MB RAM).
 
@@ -159,12 +159,14 @@ Verify: `http://127.0.0.1:8016/api/health` returns `{"status":"ok",...}`.
 1. Open `http://127.0.0.1:8016/`
 2. Enter an admin email (seeded in `config.yaml → auth.admin_emails`):
    `office@duztec.in`, `vasanirs@duztec.in`, `abhishek.ghumare@lechlerindia.com`
-3. **With SMTP working**, the 6-digit code arrives by email.
+3. Nobody has a password yet, so click **First login / Forgot password** → **Send Code**.
+   **With SMTP working**, the 6-digit code arrives by email.
    **Without SMTP**, it is written to `data\logs\app.log` — find it with:
    ```
    findstr "LOGIN OTP" data\logs\app.log
    ```
-4. Enter the code. The session lasts 7 days per browser.
+4. Enter the code and choose a password (8+ characters). You are logged in; from then on log in
+   with email + password. The session lasts 7 days per browser.
 5. Go to the **Users** tab → add each sales engineer with a unique **RKZ code**.
 
 ### 5.7 Linux alternative
@@ -214,7 +216,7 @@ From `duztec_crm` with the venv active:
 ```
 It prints the effective settings, sends a test message, and on failure lists the likely cause
 (wrong port, app-password needed, SMTP AUTH disabled, firewall). Restart the app after changing
-config so it picks the new values up, then do one real OTP login to confirm end-to-end.
+config so it picks the new values up, then do one real *First login / Forgot password* to confirm end-to-end.
 
 ### 6.3 Deliverability
 Send from a real mailbox on your own domain (`office@duztec.in`), not a spoofed address, so
@@ -306,7 +308,8 @@ Take a backup before pulling anyway — it costs seconds.
 ## 11. Day-to-day administration
 
 - **Add a sales engineer:** Users tab → *+ Add User* → Duztec email, name, unique RKZ code,
-  role *Sales engineer*. They can log in immediately via OTP.
+  role *Sales engineer*. On first login they click *First login / Forgot password*, verify the
+  emailed code and choose a password. The Users tab shows whether each password is set.
 - **Deactivate someone:** Users tab → *Deactivate*. Their sessions are killed instantly.
 - **Assign old records to an RKZ:** the ✎ buttons on Quotations rows, the Orders RKZ column, or
   *Assign RKZ* on an enquiry card. The picker lists active users' codes.
@@ -329,7 +332,7 @@ Take a backup before pulling anyway — it costs seconds.
 | `auth.admin_emails` | Seeded admins; also the explicit exceptions to the domain rule |
 | `auth.rkz_codes` | Seed RKZ code per admin email |
 | `auth.session_hours` | Login validity (168 h = 7 days) |
-| `auth.otp_minutes` | OTP validity (10) |
+| `auth.otp_minutes` | Validity of the emailed login code, minutes (10) |
 | `auth.smtp.*` | Mail server — **override in `config.local.yaml`** |
 | `geo.pincode_keywords` | Plant/city keyword → pincode, used to auto-place customers on the map |
 | `geo.state_keywords` | Keyword → state, used when a customer's state is blank |
@@ -342,7 +345,7 @@ Take a backup before pulling anyway — it costs seconds.
 | Symptom | Cause / fix |
 |---|---|
 | "Please log in." with no login box | Browser cached an old page. Hard-reload: Ctrl+F5 (Windows), ⌥⌘R (Safari). |
-| No OTP email arrives | Run `python -m backend.check_smtp you@duztec.in`; check spam; confirm app-password and port. |
+| No login-code email arrives | Run `python -m backend.check_smtp you@duztec.in`; check spam; confirm app-password and port. |
 | "This email is not registered" | Ask an admin to add the user in the Users tab. |
 | "Only duztec.in email addresses can be added" | By design. Exceptions must be listed in `auth.admin_emails`. |
 | Engineer sees no data | Their records have no RKZ, or their RKZ is unset. Users tab → RKZ Coverage → assign. |
@@ -360,8 +363,10 @@ also recorded in the in-app activity feed on the dashboard.
 
 - **LAN-only by design.** There is no HTTPS, no rate-limited public endpoint and no WAF.
   Do not expose port 8016 to the internet. For remote access use a VPN into the office network.
-- Authentication is email OTP; sessions are HTTP-only cookies valid 7 days. There are no
-  passwords to leak, but anyone with access to the server's log file can read OTPs while SMTP
+- Authentication is email + password (salted PBKDF2-SHA256, 600k iterations). 5 wrong passwords
+  lock the account for 15 minutes. Setting or resetting a password needs a code emailed to the
+  user and signs out their other devices. Sessions are HTTP-only cookies valid 7 days. Anyone with
+  access to the server's log file can read verification codes while SMTP
   is unconfigured — another reason to complete §6 before rollout.
 - Admins can see all data; engineers are restricted by RKZ at the API level (not just the UI).
 - Quotation numbering is sequential and shared; two people creating quotations at the exact same
@@ -376,7 +381,7 @@ also recorded in the in-app activity feed on the dashboard.
 - [ ] `crm.db` copied from the old machine and verified (customer/quotation counts match)
 - [ ] `config.local.yaml` created with working SMTP — `check_smtp` passes
 - [ ] Real **GSTIN**, bank details and standard terms filled in (quotations are legal documents)
-- [ ] One real OTP login completed by someone who is *not* on the server
+- [ ] One real first login (emailed code → set password) completed by someone who is *not* on the server
 - [ ] Static IP set, firewall rule added, users can reach `http://<ip>:8016/`
 - [ ] Task Scheduler entry created; server rebooted once to prove it comes back up
 - [ ] Nightly backup job scheduled **and a restore tested**

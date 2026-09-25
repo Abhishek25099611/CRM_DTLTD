@@ -16,8 +16,9 @@ company:                       # used on the quotation letterhead — CONFIRM wi
 
 numbering:
   enquiry_prefix: "ENQ-2627-"  # ENQ-2627-001 ...
-  quote_prefix: "Q"            # continues the MIS series: Q00565 ...
+  quote_prefix: "Q"            # Q00493 ...
   quote_pad: 5
+  quote_start: 493             # first quotation number on a fresh database (never goes below this)
 
 enquiry_types: [Normal, Tender, Budgetary, Supporting, Repeat Order]   # "Enquiry Type" on the form; copied to the quotation
 
