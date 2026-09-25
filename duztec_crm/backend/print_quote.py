@@ -86,10 +86,23 @@ def render(q: dict, items: list[dict], customer: dict, contact: dict | None) -> 
                f"<tr><td colspan='7' class='num lbl'>IGST</td><td class='num'>{inr(gst_amt)}</td></tr>"
     disc_row = f"<tr><td colspan='7' class='num lbl'>Discount ({q.get('discount_pct'):g}%)</td><td class='num'>-{inr(disc)}</td></tr>" if disc else ""
     ref = f"{q['quote_no']}{('-' + q['rev']) if q.get('rev') else ''}"
-    ct = f"<br>Kind Attn: {escape(contact['name'])}" + (f" · {escape(contact['phone'])}" if contact and contact.get("phone") else "") if contact else ""
+    ct = ""
+    if contact:
+        who = escape(contact["name"])
+        extra = " · ".join(escape(x) for x in (contact.get("designation"), contact.get("department"), contact.get("phone")) if x)
+        ct = f"<br>Kind Attn: {who}" + (f" ({extra})" if extra else "")
+    intro = (q.get("introduction") or "").strip()
+    intro_html = f"<p class='sec'>{escape(intro)}</p>" if intro else ""
+    sections = "".join(
+        f"<h4>{title}</h4><p class='sec'>{escape(q.get(key) or '')}</p>"
+        for key, title in (("scope", "Scope of Supply"), ("warranty", "Warranty"), ("guarantee", "Guarantee"))
+        if (q.get(key) or "").strip())
+    qtype = f" · {escape(q['type'])}" if q.get("type") else ""
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>Quotation {escape(ref)}</title>
 <style>
  body{{font-family:Nunito,Segoe UI,Arial,sans-serif;color:#191919;margin:32px;font-size:13px}}
+ .sec{{white-space:pre-line;margin:4px 0 10px}} h4{{margin:12px 0 2px;color:#2260a4;font-size:13px;text-transform:uppercase;letter-spacing:.5px}}
+ .terms td{{white-space:pre-line}}
  .lh{{border-bottom:3px solid #a1c138;padding-bottom:10px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-end}}
  .lh img{{height:58px}} .lh small{{color:#667987;display:block;max-width:420px}}
  .qh{{text-align:right}} .qh b{{color:#2260a4;font-size:18px}}
@@ -104,9 +117,11 @@ def render(q: dict, items: list[dict], customer: dict, contact: dict | None) -> 
 <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
 <div class="lh"><div><img src="{logo}" alt="{escape(SETTINGS.company_name)}"><small>{escape(c.get('address',''))}</small>
 <small>CIN: {escape(c.get('cin',''))} · GSTIN: {escape(c.get('gstin',''))}</small></div>
-<div class="qh"><b>QUOTATION</b><br>No: <b>{escape(ref)}</b><br>Date: {escape(q['date'])}<br>Valid till: {valid_till}</div></div>
+<div class="qh"><b>QUOTATION</b>{qtype}<br>No: <b>{escape(ref)}</b><br>Date: {escape(q['date'])}<br>Valid till: {valid_till}</div></div>
 <p><b>To:</b> {escape(customer['name'])}<br>{escape(customer.get('address') or '')}{ct}</p>
-<p>Dear Sir/Madam,<br>With reference to your enquiry, we are pleased to submit our offer as under:</p>
+<p>Dear Sir/Madam,</p>
+{intro_html}
+<p>We are pleased to submit our offer as under:</p>
 <table><thead><tr><th class="num">#</th><th>Description</th><th>HSN</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate (₹)</th><th class="num">GST</th><th class="num">Amount (₹)</th></tr></thead>
 <tbody>{rows}
 <tr><td colspan='7' class='num lbl'>Sub Total</td><td class='num'>{inr(sub)}</td></tr>
@@ -114,6 +129,7 @@ def render(q: dict, items: list[dict], customer: dict, contact: dict | None) -> 
 <tr class="total"><td colspan='7' class='num'>Grand Total</td><td class='num'>₹ {inr(total)}</td></tr>
 </tbody></table>
 <p><i>{escape(amount_in_words(total))}</i></p>
+{sections}
 <table class="terms">
 <tr><td>Delivery</td><td>{escape(q.get('delivery_terms') or '')}</td></tr>
 <tr><td>Payment</td><td>{escape(q.get('payment_terms') or '')}</td></tr>

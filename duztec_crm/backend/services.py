@@ -13,9 +13,10 @@ from . import auth, db
 
 
 def _scope(request: Request) -> str | None:
-    """None = admin (see all). Otherwise the user's RKZ code ('' = no code assigned -> sees nothing personal)."""
+    """None = see everything (admin, or read-only viewer). Otherwise the engineer's RKZ code
+    ('' = no code assigned -> sees nothing personal)."""
     u = auth.current_user(request)
-    if not u or u["role"] == "admin":
+    if not u or u["role"] in ("admin", "viewer"):
         return None
     return (u.get("rkz") or "").strip().upper() or "__UNASSIGNED__"
 
@@ -62,3 +63,28 @@ def pincode_coords() -> dict:
         return json.loads(path.read_text())
     except OSError:
         return {}
+
+
+INDIAN_STATES = [
+    "Andaman and Nicobar Islands", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chandigarh",
+    "Chhattisgarh", "Dadra and Nagar Haveli and Daman and Diu", "Delhi", "Goa", "Gujarat", "Haryana",
+    "Himachal Pradesh", "Jammu and Kashmir", "Jharkhand", "Karnataka", "Kerala", "Ladakh", "Lakshadweep",
+    "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Puducherry",
+    "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand",
+    "West Bengal", "International",
+]
+
+
+def _is_admin(request: Request) -> bool:
+    u = auth.current_user(request)
+    return bool(u and u["role"] == "admin")
+
+
+def _check_quote_edit(request: Request, q) -> None:
+    """Edit/revise rule: engineers may edit only their own Drafts; anything Sent or later is admin-only."""
+    _check_quote_access(request, q)
+    if _is_admin(request):
+        return
+    if (q["status"] or "") != "draft":
+        raise HTTPException(403, {"error_type": "locked",
+                                  "detail": "Quotation is locked once marked Sent — ask an admin to edit or revise it."})

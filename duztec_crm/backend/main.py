@@ -20,13 +20,21 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 PUBLIC_PATHS = ("/api/auth/request-otp", "/api/auth/verify", "/api/auth/me", "/api/auth/logout", "/api/health")
 
 
+VIEWER_ALLOWED_WRITES = ("/api/auth/logout",)
+
+
 @app.middleware("http")
 async def _require_login(request: Request, call_next):
     path = request.url.path
     if path.startswith("/api/") and path not in PUBLIC_PATHS:
-        if auth.current_user(request) is None:
+        user = auth.current_user(request)
+        if user is None:
             return JSONResponse(status_code=401, content={"detail": {"error_type": "unauthenticated",
                                                                      "detail": "Please log in."}})
+        # View-only users: every non-GET call is refused centrally, whatever the endpoint.
+        if user["role"] == "viewer" and request.method != "GET" and path not in VIEWER_ALLOWED_WRITES:
+            return JSONResponse(status_code=403, content={"detail": {"error_type": "read_only",
+                                                                     "detail": "Your account is view-only."}})
     return await call_next(request)
 
 

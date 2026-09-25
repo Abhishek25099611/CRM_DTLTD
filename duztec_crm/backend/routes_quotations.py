@@ -1,20 +1,23 @@
 """Quotations: builder, revisions, statuses, letterhead print."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse
 
-from . import auth, db, print_quote
-from .config import LOGGER, SETTINGS
-from .schemas import (AssignRkzIn, ContactIn, CustomerIn, EnquiryIn, FollowupIn, ItemIn, QuotationIn, StatusIn)
-from .services import _check_quote_access, _geo_state, _q_totals, _quote_row, _scope
+from . import db, print_quote
+from .config import SETTINGS
+from .schemas import ItemIn, QuotationIn, StatusIn
+from .services import _check_quote_access, _check_quote_edit, _is_admin, _q_totals, _quote_row, _scope
 
 router = APIRouter()
 
+TEXT_SECTIONS = ("introduction", "scope", "warranty", "guarantee")
+
+
 @router.get("/api/quotations")
-def quotations(request: Request, status: str = "", customer_id: int | None = None):
+def quotations(request: Request, status: str = "", customer_id: int | None = None, q: str = ""):
     sc = _scope(request)
     con = db.connect()
     sql = """SELECT q.*, c.name customer, ct.name contact FROM quotations q
@@ -27,6 +30,8 @@ def quotations(request: Request, status: str = "", customer_id: int | None = Non
         sql += " AND q.status=?"; args.append(status)
     if customer_id:
         sql += " AND q.customer_id=?"; args.append(customer_id)
+    if q.strip():
+        sql += " AND (q.quote_no LIKE ? OR c.name LIKE ?)"; args += [f"%{q.strip()}%", f"%{q.strip()}%"]
     out = [_quote_row(con, r) for r in db.rows(con.execute(sql + " ORDER BY q.id DESC", args))]
     con.close()
     return out
@@ -44,6 +49,8 @@ def quotation(qid: int, request: Request):
     _check_quote_access(request, r)
     out = _quote_row(con, dict(r))
     out["items"] = db.rows(con.execute("SELECT * FROM quotation_items WHERE quotation_id=? ORDER BY sr", (qid,)))
+    # what the current user may do with it (mirrors _check_quote_edit)
+    out["can_edit"] = _is_admin(request) or r["status"] == "draft"
     con.close()
     return out
 
@@ -56,6 +63,18 @@ def _save_items(con, qid: int, items: list[ItemIn]):
                     (qid, i, it.description.strip(), it.hsn, it.qty, it.unit, it.rate, it.gst_pct))
 
 
+def _with_defaults(q: QuotationIn) -> dict:
+    """Blank text fields fall back to config defaults so standard wording is pre-filled."""
+    d = SETTINGS.quotation_defaults
+    return {
+        "validity_days": q.validity_days or int(d.get("validity_days", 30)),
+        "delivery_terms": q.delivery_terms or d.get("delivery_terms", ""),
+        "payment_terms": q.payment_terms or d.get("payment_terms", ""),
+        "notes": q.notes or d.get("notes", ""),
+        **{k: (getattr(q, k) or str(d.get(k, "") or "")).strip() for k in TEXT_SECTIONS},
+    }
+
+
 @router.post("/api/quotations")
 def add_quotation(q: QuotationIn, request: Request):
     sc = _scope(request)
@@ -63,16 +82,21 @@ def add_quotation(q: QuotationIn, request: Request):
         if sc == "__UNASSIGNED__":
             raise HTTPException(403, {"error_type": "no_rkz", "detail": "You have no RKZ code yet — ask an admin to assign one in the Users tab."})
         q.salesperson = sc
-    d = SETTINGS.quotation_defaults
     con = db.connect()
+    qtype = q.type.strip()
+    if q.enquiry_id and not qtype:      # carry the Enquiry Type onto the quotation
+        enq = con.execute("SELECT priority FROM enquiries WHERE id=?", (q.enquiry_id,)).fetchone()
+        qtype = (enq["priority"] if enq else "") or ""
+    f = _with_defaults(q)
     no = db.next_quote_no(con)
     cur = con.execute("""INSERT INTO quotations(quote_no,rev,enquiry_id,customer_id,contact_id,date,validity_days,
-                         delivery_terms,payment_terms,notes,gst_mode,discount_pct,salesperson,status,created_at,updated_at)
-                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?, 'draft', ?, ?)""",
+                         delivery_terms,payment_terms,notes,gst_mode,discount_pct,salesperson,type,
+                         introduction,scope,warranty,guarantee,status,created_at,updated_at)
+                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'draft', ?, ?)""",
                       (no, "", q.enquiry_id, q.customer_id, q.contact_id, q.date or date.today().isoformat(),
-                       q.validity_days or int(d.get("validity_days", 30)),
-                       q.delivery_terms or d.get("delivery_terms", ""), q.payment_terms or d.get("payment_terms", ""),
-                       q.notes or d.get("notes", ""), q.gst_mode, q.discount_pct, q.salesperson, db.now(), db.now()))
+                       f["validity_days"], f["delivery_terms"], f["payment_terms"], f["notes"],
+                       q.gst_mode, q.discount_pct, q.salesperson, qtype,
+                       f["introduction"], f["scope"], f["warranty"], f["guarantee"], db.now(), db.now()))
     qid = cur.lastrowid
     _save_items(con, qid, q.items)
     if q.enquiry_id:
@@ -87,18 +111,22 @@ def edit_quotation(qid: int, q: QuotationIn, request: Request):
     sc = _scope(request)
     con = db.connect()
     ex = con.execute("SELECT status, salesperson FROM quotations WHERE id=?", (qid,)).fetchone()
-    if ex:
-        _check_quote_access(request, ex)
-    if sc:
-        q.salesperson = sc
     if not ex:
         con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": f"quotation {qid}"})
+    try:
+        _check_quote_edit(request, ex)          # own draft, or admin
+    except HTTPException:
+        con.close(); raise
+    if sc:
+        q.salesperson = sc
     if ex["status"] not in ("draft", "sent"):
         con.close(); raise HTTPException(422, {"error_type": "locked", "detail": f"Cannot edit a {ex['status']} quotation — create a revision instead"})
     con.execute("""UPDATE quotations SET customer_id=?,contact_id=?,date=?,validity_days=?,delivery_terms=?,
-                   payment_terms=?,notes=?,gst_mode=?,discount_pct=?,salesperson=?,updated_at=? WHERE id=?""",
+                   payment_terms=?,notes=?,gst_mode=?,discount_pct=?,salesperson=?,type=?,
+                   introduction=?,scope=?,warranty=?,guarantee=?,updated_at=? WHERE id=?""",
                 (q.customer_id, q.contact_id, q.date or date.today().isoformat(), q.validity_days,
-                 q.delivery_terms, q.payment_terms, q.notes, q.gst_mode, q.discount_pct, q.salesperson, db.now(), qid))
+                 q.delivery_terms, q.payment_terms, q.notes, q.gst_mode, q.discount_pct, q.salesperson, q.type.strip(),
+                 q.introduction, q.scope, q.warranty, q.guarantee, db.now(), qid))
     _save_items(con, qid, q.items)
     db.log_activity(con, "quotation", qid, "edited", "")
     con.commit(); con.close()
@@ -111,12 +139,17 @@ def revise(qid: int, request: Request):
     r = con.execute("SELECT * FROM quotations WHERE id=?", (qid,)).fetchone()
     if not r:
         con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": f"quotation {qid}"})
-    _check_quote_access(request, r)
+    try:
+        _check_quote_edit(request, r)           # revision of a Sent quotation is admin-only
+    except HTTPException:
+        con.close(); raise
     rev = chr(ord(r["rev"]) + 1) if r["rev"] else "B"
     cur = con.execute("""INSERT INTO quotations(quote_no,rev,enquiry_id,customer_id,contact_id,date,validity_days,
-                         delivery_terms,payment_terms,notes,gst_mode,discount_pct,salesperson,status,created_at,updated_at)
+                         delivery_terms,payment_terms,notes,gst_mode,discount_pct,salesperson,type,
+                         introduction,scope,warranty,guarantee,status,created_at,updated_at)
                          SELECT quote_no,?,enquiry_id,customer_id,contact_id,?,validity_days,delivery_terms,
-                         payment_terms,notes,gst_mode,discount_pct,salesperson,'draft',?,? FROM quotations WHERE id=?""",
+                         payment_terms,notes,gst_mode,discount_pct,salesperson,type,
+                         introduction,scope,warranty,guarantee,'draft',?,? FROM quotations WHERE id=?""",
                       (rev, date.today().isoformat(), db.now(), db.now(), qid))
     nid = cur.lastrowid
     con.execute("""INSERT INTO quotation_items(quotation_id,sr,description,hsn,qty,unit,rate,gst_pct)
@@ -144,10 +177,15 @@ def quote_status(qid: int, s: StatusIn, request: Request):
     order_id = None
     if s.status == "won":
         t = _q_totals(con, qid)
-        cur = con.execute("""INSERT INTO orders(quotation_id,customer_id,po_no,po_date,value,month,responsible,created_at)
-                             VALUES(?,?,?,?,?,?,?,?)""",
-                          (qid, r["customer_id"], s.po_no, s.po_date or date.today().isoformat(),
-                           s.value or t["total"], date.today().strftime("%B"), (r["salesperson"] or "").upper(), db.now()))
+        first_item = con.execute("SELECT description FROM quotation_items WHERE quotation_id=? ORDER BY sr LIMIT 1",
+                                 (qid,)).fetchone()
+        # payment/delivery terms and the product travel from the quotation onto the order
+        cur = con.execute("""INSERT INTO orders(quotation_id,customer_id,po_no,so_no,po_date,value,month,responsible,
+                             system,payment_terms,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                          (qid, r["customer_id"], s.po_no.strip(), s.so_no.strip(),
+                           s.po_date or date.today().isoformat(), s.value or t["total"],
+                           date.today().strftime("%B"), (r["salesperson"] or "").upper(),
+                           first_item["description"] if first_item else "", r["payment_terms"] or "", db.now()))
         order_id = cur.lastrowid
         if r["enquiry_id"]:
             con.execute("UPDATE enquiries SET status='won', updated_at=? WHERE id=?", (db.now(), r["enquiry_id"]))

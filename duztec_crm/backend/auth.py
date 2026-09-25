@@ -16,6 +16,7 @@ from .config import LOGGER, SETTINGS
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 COOKIE = "duztec_crm_session"
+ROLES = ("admin", "user", "viewer")   # user = sales engineer (own RKZ data); viewer = read-only, sees everything
 
 AUTH_SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
@@ -182,6 +183,8 @@ def verify(body: VerifyIn, response: Response):
     con.execute("INSERT INTO sessions(token_hash,email,expires_at,created_at) VALUES(?,?,?,?)",
                 (_h(token), email, exp, db.now()))
     con.execute("UPDATE users SET last_login=? WHERE email=?", (db.now(), email))
+    for ex in con.execute("SELECT email, expires_at FROM sessions WHERE expires_at < ?", (db.now(),)):
+        db.log_activity(con, "user", None, "session_expired", f"{ex['email']} (expired {ex['expires_at']})")
     con.execute("DELETE FROM sessions WHERE expires_at < ?", (db.now(),))
     db.log_activity(con, "user", None, "login", email)
     con.commit(); con.close()
@@ -214,7 +217,10 @@ def logout(request: Request, response: Response):
     token = request.cookies.get(COOKIE)
     if token:
         con = db.connect()
+        sess = con.execute("SELECT email FROM sessions WHERE token_hash=?", (_h(token),)).fetchone()
         con.execute("DELETE FROM sessions WHERE token_hash=?", (_h(token),))
+        if sess:
+            db.log_activity(con, "user", None, "logout", sess["email"])
         con.commit(); con.close()
     response.delete_cookie(COOKIE)
     return {"ok": True}
@@ -243,8 +249,8 @@ def list_users(request: Request):
 def add_user(body: UserIn, request: Request):
     admin = require_admin(request)
     email = _norm_email(body.email)
-    if body.role not in ("admin", "user"):
-        raise HTTPException(422, {"error_type": "bad_role", "detail": body.role})
+    if body.role not in ROLES:
+        raise HTTPException(422, {"error_type": "bad_role", "detail": f"role must be one of {', '.join(ROLES)}"})
     _check_add_domain(email)
     rkz = body.rkz.strip().upper()
     con = db.connect()
@@ -268,6 +274,8 @@ def edit_user(uid: int, body: UserIn, request: Request):
     u = con.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
     if not u:
         con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": f"user {uid}"})
+    if body.role not in ROLES:
+        con.close(); raise HTTPException(422, {"error_type": "bad_role", "detail": f"role must be one of {', '.join(ROLES)}"})
     if u["email"] == admin["email"] and (not body.active or body.role != "admin"):
         con.close(); raise HTTPException(422, {"error_type": "self_lockout", "detail": "You cannot deactivate or demote yourself."})
     rkz = body.rkz.strip().upper()
@@ -281,3 +289,21 @@ def edit_user(uid: int, body: UserIn, request: Request):
     db.log_activity(con, "user", uid, "user_edited", f"{u['email']} by {admin['email']}")
     con.commit(); con.close()
     return {"ok": True}
+
+
+@router.get("/login-history")
+def login_history(request: Request, email: str = "", days: int = 30):
+    """Login / logout / session-expiry events from the activity log (admin only)."""
+    require_admin(request)
+    days = max(1, min(int(days), 365))
+    con = db.connect()
+    sql = """SELECT at, action, detail FROM activity WHERE entity_type='user'
+             AND action IN ('login','logout','session_expired') AND at >= datetime('now', ?)"""
+    args: list = [f"-{days} day"]
+    if email:
+        sql += " AND detail LIKE ?"; args.append(f"{email.strip().lower()}%")
+    rows = db.rows(con.execute(sql + " ORDER BY id DESC LIMIT 2000", args))
+    con.close()
+    for r in rows:
+        r["email"] = r["detail"].split(" ")[0]
+    return rows

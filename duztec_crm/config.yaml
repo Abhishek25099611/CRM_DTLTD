@@ -19,12 +19,29 @@ numbering:
   quote_prefix: "Q"            # continues the MIS series: Q00565 ...
   quote_pad: 5
 
+enquiry_types: [Normal, Tender, Budgetary, Supporting, Repeat Order]   # "Enquiry Type" on the form; copied to the quotation
+
 quotation_defaults:
   validity_days: 30
   gst_pct: 18
   delivery_terms: "8-10 weeks from technically & commercially clear PO"
   payment_terms: "50% advance, 50% before dispatch"
   notes: "Freight, transit insurance and unloading at site are in buyer's scope unless stated."
+  # Pre-filled text sections; edit per quotation. Multi-line text is allowed (use | in YAML).
+  introduction: |
+    Duztec Engineering Pvt. Ltd. designs and manufactures dust-suppression and industrial cleaning systems
+    for steel, cement, mining and power plants across India. We thank you for your enquiry and are pleased
+    to submit our technical and commercial offer as under.
+  scope: |
+    Design, manufacture, supply, testing and commissioning of the equipment listed above, including standard
+    accessories and documentation. Civil work, power supply at site, water supply and any items not
+    expressly listed are excluded.
+  warranty: |
+    12 months from the date of commissioning or 18 months from the date of dispatch, whichever is earlier,
+    against manufacturing defects. Consumables and damage due to misuse are not covered.
+  guarantee: |
+    Performance as per the agreed technical specification, subject to operation within the stated design
+    parameters and site conditions.
 
 paths:
   db: "./data/crm.db"

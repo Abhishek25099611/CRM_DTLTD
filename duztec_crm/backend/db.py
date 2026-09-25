@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS customers(
   state TEXT DEFAULT '', pincode TEXT DEFAULT '', segment TEXT DEFAULT '', created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS contacts(
   id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id),
-  name TEXT NOT NULL, phone TEXT DEFAULT '', email TEXT DEFAULT '', role TEXT DEFAULT '');
+  name TEXT NOT NULL, phone TEXT DEFAULT '', email TEXT DEFAULT '', role TEXT DEFAULT '',
+  designation TEXT DEFAULT '', department TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS enquiries(
   id INTEGER PRIMARY KEY, enq_no TEXT NOT NULL UNIQUE, date TEXT NOT NULL, source TEXT DEFAULT '',
   customer_id INTEGER NOT NULL REFERENCES customers(id), contact_id INTEGER REFERENCES contacts(id),
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS quotations(
   status TEXT NOT NULL DEFAULT 'draft', -- draft/sent/won/lost/cold/superseded
   lost_reason TEXT DEFAULT '', salesperson TEXT DEFAULT '',
   legacy_probability TEXT DEFAULT '', month TEXT DEFAULT '', type TEXT DEFAULT '',
+  introduction TEXT DEFAULT '', scope TEXT DEFAULT '', warranty TEXT DEFAULT '', guarantee TEXT DEFAULT '',
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
   UNIQUE(quote_no, rev));
 CREATE TABLE IF NOT EXISTS quotation_items(
@@ -68,11 +70,25 @@ def connect() -> sqlite3.Connection:
     return con
 
 
+# Columns added after the first release; applied idempotently at startup so `git pull` + restart migrates.
+MIGRATIONS = [
+    ("customers", "pincode", "TEXT DEFAULT ''"),
+    ("contacts", "designation", "TEXT DEFAULT ''"),
+    ("contacts", "department", "TEXT DEFAULT ''"),
+    ("quotations", "introduction", "TEXT DEFAULT ''"),
+    ("quotations", "scope", "TEXT DEFAULT ''"),
+    ("quotations", "warranty", "TEXT DEFAULT ''"),
+    ("quotations", "guarantee", "TEXT DEFAULT ''"),
+]
+
+
 def init() -> None:
     con = connect()
     con.executescript(SCHEMA)
-    if "pincode" not in [r[1] for r in con.execute("PRAGMA table_info(customers)")]:
-        con.execute("ALTER TABLE customers ADD COLUMN pincode TEXT DEFAULT ''")
+    for table, col, ddl in MIGRATIONS:
+        if col not in [r[1] for r in con.execute(f"PRAGMA table_info({table})")]:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+            LOGGER.info("Migration: added %s.%s", table, col)
     con.commit(); con.close()
 
 

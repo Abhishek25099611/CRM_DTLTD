@@ -23,9 +23,16 @@ sections 1–7 before the first install; sections 8–15 are operational referen
 | Users | OTP login, admin/engineer roles, **RKZ codes** with per-engineer data isolation |
 | Export | Excel export of every register; one-click SQLite backup |
 
-**RKZ scoping (important):** a non-admin user sees *only* records whose salesperson/responsible
-equals their RKZ code (e.g. `RV`). Admins see everything and can assign RKZ codes to old records.
-Records with no RKZ are invisible to engineers and visible only to admins.
+**Roles and RKZ scoping (important):**
+
+| Role | Sees | Can change |
+|---|---|---|
+| Admin | everything | everything; sets RKZ codes, manages users, edits/revises any quotation |
+| Sales engineer (`user`) | only records carrying their own RKZ code (e.g. `RV`) | their own records; may edit their own **Draft** quotations — once a quotation is marked **Sent** it is locked and only an admin can edit or revise it |
+| View only (`viewer`) | everything | nothing — every create/edit/delete is refused by the server |
+
+Records with no RKZ are invisible to engineers and visible only to admins and viewers.
+Existing quotations imported from the MIS workbook have no RKZ until an admin assigns one.
 
 ---
 

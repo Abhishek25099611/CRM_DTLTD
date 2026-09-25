@@ -46,8 +46,17 @@ duztec_crm/
   is filled in config.yaml, codes are written to `data/logs/app.log` (dev mode).
 - **Admins** (config-seeded): office@, vasanirs@ (RKZ RV), abhishek.ghumare@lechlerindia.com.
   Users tab: add engineers with unique RKZ codes; RKZ Coverage panel shows unassigned records.
-- **Scoping**: engineers see only rows carrying their RKZ; admins see all and can assign RKZ to
-  old records via the ✎ buttons (dropdown of active users' codes).
+- **Roles**: `admin` (everything) · `user` = sales engineer (own RKZ rows only; may edit own
+  Drafts, locked once Sent) · `viewer` (sees everything, all writes refused by the middleware).
+  Admins assign RKZ to old records via the ✎ buttons (dropdown of active users' codes) and can
+  view login/logout history from the Users tab.
+- **Enquiry Type** (Normal / Tender / Budgetary / Supporting / Repeat Order) lives in the
+  enquiries `priority` column, is validated against `config.yaml → enquiry_types`, and is copied
+  onto the quotation `type`.
+- **Quotation text sections** (introduction, scope, warranty, guarantee) are pre-filled from
+  `quotation_defaults` and printed on the letterhead; delivery/payment terms are multi-line.
+- **Schema migrations**: `db.MIGRATIONS` adds missing columns at startup, so `git pull` + restart
+  upgrades an existing database in place.
 - **Before real quotations**: replace the GSTIN placeholder, bank details and default terms in
   config.yaml.
 - **Backups**: dashboard button / POST /api/backup writes to data/backup — schedule nightly + copy

@@ -18,7 +18,9 @@ class ContactIn(BaseModel):
     name: str = Field(min_length=1)
     phone: str = ""
     email: str = ""
-    role: str = ""
+    role: str = ""            # legacy free-text; superseded by designation/department
+    designation: str = ""
+    department: str = ""
 
 
 class EnquiryIn(BaseModel):
@@ -30,7 +32,7 @@ class EnquiryIn(BaseModel):
     system: str = ""
     expected_value: float = 0
     salesperson: str = ""
-    priority: str = "Normal"
+    priority: str = "Normal"   # holds the Enquiry Type (Normal/Tender/Budgetary/Supporting/Repeat Order)
 
 
 class ItemIn(BaseModel):
@@ -54,6 +56,11 @@ class QuotationIn(BaseModel):
     gst_mode: str = "intra"
     discount_pct: float = 0
     salesperson: str = ""
+    type: str = ""            # Enquiry Type carried onto the quotation
+    introduction: str = ""
+    scope: str = ""
+    warranty: str = ""
+    guarantee: str = ""
     items: list[ItemIn] = []
 
 
@@ -75,5 +82,15 @@ class StatusIn(BaseModel):
     status: str
     reason: str = ""
     po_no: str = ""
+    so_no: str = ""
     po_date: str = ""
     value: float = 0
+
+
+class OrderEditIn(BaseModel):
+    po_no: str = ""
+    so_no: str = ""
+    po_date: str = ""
+    value: float = 0
+    payment_terms: str = ""
+    delivery_date: str = ""

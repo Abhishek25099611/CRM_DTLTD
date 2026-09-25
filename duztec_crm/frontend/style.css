@@ -154,3 +154,13 @@ td.wrap{white-space:pre-line;max-width:420px}
 .login-msg-err{color:var(--critical)!important;font-weight:700}
 .user-chip{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
 .user-chip span{font-weight:700;color:var(--brand)}
+
+/* ---- Phase 1: roles, enquiry types, contacts ---- */
+body.role-viewer [data-write]{display:none!important}
+.type-pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;background:var(--tint,#eceff8);color:var(--brand);border:1px solid var(--line);margin-left:4px;vertical-align:middle}
+.kcard.type-Tender{border-left-color:#7c3aed}
+.kcard.type-Budgetary{border-left-color:#f59e0b}
+.kcard.type-Supporting{border-left-color:#64748b}
+.kcard.type-RepeatOrder{border-left-color:var(--accent)}
+.modal-form textarea{min-height:64px;resize:vertical;font:inherit;line-height:1.45}
+.modal-form h3{font-family:var(--font-head);font-size:15px;letter-spacing:.5px;text-transform:uppercase;color:var(--brand)}

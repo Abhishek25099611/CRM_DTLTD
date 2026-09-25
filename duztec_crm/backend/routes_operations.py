@@ -1,16 +1,16 @@
 """Orders, follow-ups, RKZ assignment, Excel export, backup."""
 from __future__ import annotations
 
-from datetime import date, datetime
-
-from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
-
-from . import auth, db, print_quote
-from .config import LOGGER, SETTINGS
-from .schemas import (AssignRkzIn, ContactIn, CustomerIn, EnquiryIn, FollowupIn, ItemIn, QuotationIn, StatusIn)
-from .services import _check_quote_access, _geo_state, _q_totals, _quote_row, _scope
 import io
+import re
+from datetime import datetime
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
+
+from . import auth, db
+from .schemas import AssignRkzIn, FollowupIn, OrderEditIn, StatusIn
+from .services import _is_admin, _scope
 
 router = APIRouter()
 
@@ -18,8 +18,7 @@ router = APIRouter()
 def assign_rkz(body: AssignRkzIn, request: Request):
     auth.require_admin(request)
     rkz = body.rkz.strip().upper()
-    import re as _re
-    if rkz and not _re.fullmatch(r"[A-Z0-9]{1,6}", rkz):
+    if rkz and not re.fullmatch(r"[A-Z0-9]{1,6}", rkz):
         raise HTTPException(422, {"error_type": "bad_rkz", "detail": "RKZ must be 1-6 letters/digits (e.g. RV)."})
     table_col = {"enquiry": ("enquiries", "salesperson"), "quotation": ("quotations", "salesperson"),
                  "order": ("orders", "responsible")}.get(body.entity_type)
@@ -102,12 +101,33 @@ def orders(request: Request):
     sc = _scope(request)
     con = db.connect()
     w = " WHERE (o.responsible=? OR q.salesperson=?)" if sc else ""
-    out = db.rows(con.execute(f"""SELECT o.*, c.name customer, q.quote_no FROM orders o
+    out = db.rows(con.execute(f"""SELECT o.*, c.name customer, q.quote_no, q.rev quote_rev,
+                                 q.delivery_terms quote_delivery_terms FROM orders o
                                  JOIN customers c ON c.id=o.customer_id
                                  LEFT JOIN quotations q ON q.id=o.quotation_id{w} ORDER BY o.id DESC""",
                               (sc, sc) if sc else ()))
     con.close()
     return out
+
+
+@router.put("/api/orders/{oid}")
+def edit_order(oid: int, body: OrderEditIn, request: Request):
+    """SO number, PO details and payment terms are editable by an admin or the order's own RKZ."""
+    sc = _scope(request)
+    con = db.connect()
+    o = con.execute("""SELECT o.responsible, q.salesperson FROM orders o LEFT JOIN quotations q ON q.id=o.quotation_id
+                       WHERE o.id=?""", (oid,)).fetchone()
+    if not o:
+        con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": f"order {oid}"})
+    if sc and sc not in ((o["responsible"] or "").upper(), (o["salesperson"] or "").upper()):
+        con.close(); raise HTTPException(403, {"error_type": "forbidden", "detail": "This order belongs to another RKZ code."})
+    con.execute("""UPDATE orders SET po_no=?, so_no=?, po_date=?, value=COALESCE(NULLIF(?,0), value),
+                   payment_terms=?, delivery_date=? WHERE id=?""",
+                (body.po_no.strip(), body.so_no.strip(), body.po_date.strip(), body.value,
+                 body.payment_terms.strip(), body.delivery_date.strip(), oid))
+    db.log_activity(con, "order", oid, "edited", f"SO {body.so_no.strip() or '-'} · PO {body.po_no.strip() or '-'}")
+    con.commit(); con.close()
+    return {"ok": True}
 
 
 @router.get("/api/export/{register}.xlsx")
@@ -119,11 +139,16 @@ def export(register: str, request: Request):
     Q = " AND q.salesperson=?" if sc else ""
     O = " AND (o.responsible=? OR q.salesperson=?)" if sc else ""
     queries = {
-        "enquiries": (f"SELECT e.enq_no,e.date,e.source,c.name customer,e.system,e.requirement,e.expected_value,e.salesperson,e.priority,e.status FROM enquiries e JOIN customers c ON c.id=e.customer_id WHERE 1=1{E} ORDER BY e.id", (sc,) if sc else ()),
-        "quotations": (f"SELECT q.quote_no,q.rev,q.date,c.name customer,q.status,q.lost_reason,q.salesperson FROM quotations q JOIN customers c ON c.id=q.customer_id WHERE q.status!='superseded'{Q} ORDER BY q.id", (sc,) if sc else ()),
-        "orders": (f"SELECT o.po_no,o.so_no,o.po_date,c.name customer,q.quote_no,o.value,o.responsible,o.payment_terms FROM orders o JOIN customers c ON c.id=o.customer_id LEFT JOIN quotations q ON q.id=o.quotation_id WHERE 1=1{O} ORDER BY o.id", (sc, sc) if sc else ()),
-        "customers": ("SELECT name,gstin,address,state,segment FROM customers ORDER BY name", ()),
+        "enquiries": (f"SELECT e.enq_no,e.date,e.source,c.name customer,e.system,e.requirement,e.expected_value,e.salesperson,e.priority enquiry_type,e.status FROM enquiries e JOIN customers c ON c.id=e.customer_id WHERE 1=1{E} ORDER BY e.id", (sc,) if sc else ()),
+        "quotations": (f"SELECT q.quote_no,q.rev,q.date,c.name customer,q.type,q.status,q.lost_reason,q.salesperson,q.payment_terms FROM quotations q JOIN customers c ON c.id=q.customer_id WHERE q.status!='superseded'{Q} ORDER BY q.id", (sc,) if sc else ()),
+        "orders": (f"SELECT o.po_no,o.so_no,o.po_date,c.name customer,q.quote_no,o.system,o.value,o.responsible,o.payment_terms,o.delivery_date FROM orders o JOIN customers c ON c.id=o.customer_id LEFT JOIN quotations q ON q.id=o.quotation_id WHERE 1=1{O} ORDER BY o.id", (sc, sc) if sc else ()),
+        "customers": ("SELECT name,gstin,address,state,pincode,segment FROM customers ORDER BY name", ()),
+        "contacts": ("SELECT c.name customer,ct.name,ct.designation,ct.department,ct.phone,ct.email FROM contacts ct JOIN customers c ON c.id=ct.customer_id ORDER BY c.name, ct.name", ()),
     }
+    if register == "logins":
+        if not _is_admin(request):
+            con.close(); raise HTTPException(403, {"error_type": "forbidden", "detail": "Admin access required."})
+        queries["logins"] = ("SELECT at, action, detail FROM activity WHERE entity_type='user' AND action IN ('login','logout','session_expired') ORDER BY id DESC", ())
     if register not in queries:
         con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": register})
     sql2, args3 = queries[register]

@@ -1,15 +1,10 @@
-"""Customers and contacts."""
+"""Customers and contacts (many contacts per customer)."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from fastapi import APIRouter, HTTPException
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
-
-from . import auth, db, print_quote
-from .config import LOGGER, SETTINGS
-from .schemas import (AssignRkzIn, ContactIn, CustomerIn, EnquiryIn, FollowupIn, ItemIn, QuotationIn, StatusIn)
-from .services import _check_quote_access, _geo_state, _q_totals, _quote_row, _scope
+from . import db
+from .schemas import ContactIn, CustomerIn
 
 router = APIRouter()
 
@@ -18,7 +13,8 @@ def customers(q: str = ""):
     con = db.connect()
     sql = """SELECT c.*, (SELECT COUNT(*) FROM enquiries e WHERE e.customer_id=c.id) enquiries,
              (SELECT COUNT(*) FROM quotations x WHERE x.customer_id=c.id AND x.status!='superseded') quotes,
-             (SELECT COALESCE(SUM(value),0) FROM orders o WHERE o.customer_id=c.id) order_value
+             (SELECT COALESCE(SUM(value),0) FROM orders o WHERE o.customer_id=c.id) order_value,
+             (SELECT COUNT(*) FROM contacts ct WHERE ct.customer_id=c.id) contact_count
              FROM customers c"""
     args: tuple = ()
     if q:
@@ -62,7 +58,36 @@ def contacts(customer_id: int):
 @router.post("/api/contacts")
 def add_contact(c: ContactIn):
     con = db.connect()
-    cur = con.execute("INSERT INTO contacts(customer_id,name,phone,email,role) VALUES(?,?,?,?,?)",
-                      (c.customer_id, c.name.strip(), c.phone, c.email, c.role))
+    cur = con.execute("""INSERT INTO contacts(customer_id,name,phone,email,role,designation,department)
+                         VALUES(?,?,?,?,?,?,?)""",
+                      (c.customer_id, c.name.strip(), c.phone.strip(), c.email.strip(), c.role.strip(),
+                       c.designation.strip(), c.department.strip()))
+    db.log_activity(con, "customer", c.customer_id, "contact_added", c.name)
     con.commit(); nid = cur.lastrowid; con.close()
     return {"id": nid}
+
+
+@router.put("/api/contacts/{cid}")
+def edit_contact(cid: int, c: ContactIn):
+    con = db.connect()
+    if not con.execute("SELECT 1 FROM contacts WHERE id=?", (cid,)).fetchone():
+        con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": f"contact {cid}"})
+    con.execute("UPDATE contacts SET name=?,phone=?,email=?,role=?,designation=?,department=? WHERE id=?",
+                (c.name.strip(), c.phone.strip(), c.email.strip(), c.role.strip(),
+                 c.designation.strip(), c.department.strip(), cid))
+    con.commit(); con.close()
+    return {"ok": True}
+
+
+@router.delete("/api/contacts/{cid}")
+def delete_contact(cid: int):
+    con = db.connect()
+    used = con.execute("""SELECT (SELECT COUNT(*) FROM enquiries WHERE contact_id=?) +
+                                 (SELECT COUNT(*) FROM quotations WHERE contact_id=?)""", (cid, cid)).fetchone()[0]
+    if used:
+        con.close()
+        raise HTTPException(409, {"error_type": "in_use",
+                                  "detail": f"This contact is used on {used} enquiry/quotation record(s) and cannot be deleted."})
+    con.execute("DELETE FROM contacts WHERE id=?", (cid,))
+    con.commit(); con.close()
+    return {"ok": True}
