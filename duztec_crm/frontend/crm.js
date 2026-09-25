@@ -41,8 +41,12 @@
     $('user-chip').classList.remove('hidden');
     const tag = ME.role === 'admin' ? ' (admin)' : ME.role === 'viewer' ? ' (view only)' : (ME.rkz ? ' (' + ME.rkz + ')' : '');
     $('user-email').textContent = ME.email + tag;
-    if (isAdmin()) $('nav-users').classList.remove('hidden');
+    if (isAdmin()) { $('nav-users').classList.remove('hidden'); $('nav-targets').classList.remove('hidden'); }
     document.body.classList.toggle('role-viewer', ME.role === 'viewer');   // hides every [data-write] control
+    if (!window.__hb) {   // presence heartbeat: "CRM open in a browser", once a minute
+      const ping = () => api('/api/auth/heartbeat', { method: 'POST' }).catch(() => {});
+      ping(); window.__hb = setInterval(ping, 60000);
+    }
   }
   $('login-send').onclick = async () => {
     const email = $('login-email').value.trim();
@@ -135,8 +139,14 @@
         <div class="kpi warning"><div class="kpi-label">Win Rate</div><div class="kpi-value">${s.win_rate_count}%</div><div class="kpi-sub">by count · <b>${s.win_rate_value}%</b> by value</div></div>
         <div class="kpi minor"><div class="kpi-label">Follow-ups Due</div><div class="kpi-value">${s.followups_due}</div><div class="kpi-sub">today or overdue</div></div>
       </section>
+      <section class="card"><h2 id="tg-title">${isAdmin() ? 'Team Targets <span class="muted small">(running now)</span>' : 'My Targets'}</h2><div class="target-grid" id="tg-block"><span class="muted small">Loading…</span></div></section>
       <div class="grid-3">
-        <section class="card chart-card"><h2>Funnel</h2><div class="chart" id="ch-funnel"></div></section>
+        <section class="card chart-card"><h2>Monthly Funnel <span class="muted small">(12 months)</span></h2><div class="chart" id="ch-mfunnel"></div></section>
+        <section class="card chart-card"><h2>Order Value Trend</h2><div class="chart" id="ch-otrend"></div></section>
+        <section class="card chart-card"><h2>Quotation vs Order Value</h2><div class="chart" id="ch-qvo"></div></section>
+      </div>
+      <div class="grid-3">
+        <section class="card chart-card"><h2>Funnel <span class="muted small">(all time)</span></h2><div class="chart" id="ch-funnel"></div></section>
         <section class="card chart-card"><h2>Quotations by Month</h2><div class="chart" id="ch-month"></div></section>
         <section class="card"><h2>Recent Activity</h2><ul class="act-list">${s.recent.map(a => `<li>${esc(a.at.slice(5, 16))} · <b>${esc(a.action)}</b> ${esc(a.entity_type)} ${esc(a.detail)}</li>`).join('') || '<li>None yet</li>'}</ul></section>
       </div>
@@ -172,6 +182,18 @@
       { label: 'Won', value: s.won, top: String(s.won), tip: s.won + ' won', color: '#a1c138' },
     ], {});
     C.bars($('ch-month'), s.monthly_quotes.map(m => ({ label: m.m.slice(5), value: m.n, top: String(m.n), tip: m.m + ': ' + m.n })), {});
+    const M = s.monthly || [];
+    const cats = M.map((x, i) => { const d = new Date(x.m + '-01T00:00:00'); const mon = d.toLocaleString('en', { month: 'short' }); return (i === 0 || x.m.endsWith('-01')) ? mon + " '" + x.m.slice(2, 4) : mon; });
+    const rupees = v => '₹ ' + short(v);
+    C.grouped($('ch-mfunnel'), cats, [
+      { name: 'Enquiries', color: '#2260a4', values: M.map(x => x.enquiries) },
+      { name: 'Quoted', color: '#5b87c5', values: M.map(x => x.quotations) },
+      { name: 'Won', color: '#a1c138', values: M.map(x => x.won) }], { title: 'Monthly funnel' });
+    C.line($('ch-otrend'), M.map((x, i) => ({ label: cats[i], value: x.order_value, tip: money(x.order_value) + ' · ' + x.orders + ' order' + (x.orders === 1 ? '' : 's') })), { fmt: rupees, title: 'Order value by month' });
+    C.grouped($('ch-qvo'), cats, [
+      { name: 'Quotation value', color: '#5b87c5', values: M.map(x => x.quotation_value) },
+      { name: 'Order value', color: '#a1c138', values: M.map(x => x.order_value) }], { fmt: rupees, title: 'Quotation vs order value' });
+    renderTargetBlock();
     initMap();
     $('go-enq').onclick = () => { switchView('enquiries'); setTimeout(newEnquiryForm, 150); };
     $('go-quote').onclick = () => { switchView('quotes'); setTimeout(() => quoteForm(null), 150); };
@@ -325,10 +347,12 @@
     const ed = $('qd-edit'); if (ed) ed.onclick = () => quoteForm(null, d);
   }
 
+  let PRODUCTS = [];
   function itemRow(it = {}) {
     const d = CFG.quotation_defaults;
     return `<tr>
-      <td><input class="i-desc" value="${esc(it.description || '')}" placeholder="Description"></td>
+      <td><select class="i-prod" title="Pick from the Products master to fill this line"><option value="">— product —</option>${PRODUCTS.map(p => `<option value="${p.id}" ${p.id == it.product_id ? 'selected' : ''}>${esc(p.code)}</option>`).join('')}</select>
+          <input class="i-desc" value="${esc(it.description || '')}" placeholder="Description" style="margin-top:3px"></td>
       <td style="width:90px"><input class="i-hsn" value="${esc(it.hsn || '')}" placeholder="HSN"></td>
       <td class="num" style="width:80px"><input type="number" class="i-qty" value="${it.qty ?? 1}" min="0" step="any"></td>
       <td style="width:80px"><input class="i-unit" value="${esc(it.unit || 'Nos.')}"></td>
@@ -338,9 +362,10 @@
       <td style="width:40px"><button class="btn small danger i-del">×</button></td></tr>`;
   }
 
-  function quoteForm(enq, existing) {
+  async function quoteForm(enq, existing) {
     const d = CFG.quotation_defaults;
     const q = existing || {};
+    try { PRODUCTS = await api('/api/products?active_only=1'); } catch (e) { PRODUCTS = []; }
     const sec = (id, label, val) => `<div class="full"><label>${label}</label><textarea id="${id}" rows="3">${esc(val || '')}</textarea></div>`;
     openModal(existing ? `Edit ${q.quote_no}${q.rev ? '-' + q.rev : ''}` : 'New Quotation' + (enq ? ' — from ' + enq.enq_no : ''), `
       <div class="modal-form">
@@ -378,6 +403,14 @@
       const tot = sub * (1 - disc / 100) + gst;
       $('q-totals').innerHTML = `<span>Subtotal (net): ${money(sub)}</span>${disc ? `<span>Discount: −${money(sub * disc / 100)}</span>` : ''}<span>GST: ${money(gst)}</span><b>Total: ${money(tot)}</b>`; };
     $('modal-body').addEventListener('input', recalc);
+    $('modal-body').addEventListener('change', e => {   // product picked -> fill the line from the master
+      if (!e.target.classList.contains('i-prod')) return;
+      const p = PRODUCTS.find(x => x.id == e.target.value); if (!p) return;
+      const tr = e.target.closest('tr');
+      tr.querySelector('.i-desc').value = p.name; tr.querySelector('.i-hsn').value = p.hsn || ''; tr.querySelector('.i-unit').value = p.unit || 'Nos.';
+      if (p.rate > 0) tr.querySelector('.i-rate').value = p.rate;
+      recalc();
+    });
     $('modal-body').addEventListener('click', e => { if (e.target.classList.contains('i-del')) { e.target.closest('tr').remove(); recalc(); } });
     $('q-add').onclick = () => { $('q-items').insertAdjacentHTML('beforeend', itemRow()); recalc(); };
     recalc();
@@ -386,6 +419,7 @@
         description: tr.querySelector('.i-desc').value.trim(), hsn: tr.querySelector('.i-hsn').value.trim(),
         qty: +tr.querySelector('.i-qty').value || 0, unit: tr.querySelector('.i-unit').value.trim(),
         rate: +tr.querySelector('.i-rate').value || 0, gst_pct: +tr.querySelector('.i-gst').value || 0,
+        product_id: +tr.querySelector('.i-prod').value || null,
       })).filter(i => i.description);
       if (!$('q-cust').value) return flash('Select a customer', false);
       if (!items.length) return flash('Add at least one line item', false);
@@ -713,13 +747,15 @@
         <tbody>${ov.by_rkz.map(r => `<tr><td><b>${esc(r.rkz)}</b></td><td class="num">${r.enquiries}</td><td class="num">${r.quotations}</td><td class="num">${r.orders}</td></tr>`).join('')}
         <tr class="row-warning"><td><b>Unassigned</b></td><td class="num">${ov.unassigned.enquiries}</td><td class="num">${ov.unassigned.quotations}</td><td class="num">${ov.unassigned.orders}</td></tr></tbody></table></div>
         <div class="muted small" style="margin-top:6px">To assign old records: use the ✎ next to RKZ in the Quotations and Orders tables, or "Assign RKZ" on an enquiry card. Records without an RKZ are invisible to sales engineers (admins and viewers always see them).</div></section>` : ''}
-      <section class="card"><div class="table-wrap"><table><thead><tr><th>Email</th><th>Name</th><th>RKZ</th><th>Role</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
+      <section class="card"><div class="table-wrap"><table><thead><tr><th>Email</th><th>Name</th><th>Presence</th><th>RKZ</th><th>Role</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
       <tbody>${list.map(u => `<tr class="${u.active ? '' : 'row-critical'}"><td><b>${esc(u.email)}</b></td><td>${esc(u.name)}</td>
+        <td><span class="presence ${esc(u.presence || 'out')}"></span>${{ active: 'Active', idle: 'Idle', out: 'Out' }[u.presence] || 'Out'}${u.last_seen ? `<div class="muted small" title="last seen">${esc(u.last_seen.slice(5, 16))}</div>` : ''}</td>
         <td><b>${esc(u.rkz || '—')}</b> <button class="btn small" data-rkz="${u.id}" title="Edit RKZ code">✎</button></td>
         <td><select class="btn small" data-rolesel="${u.id}" style="text-transform:none">${Object.entries(ROLE_LABEL).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
         <td>${u.active ? 'Active' : 'Deactivated'}</td><td>${esc(u.last_login || 'never')}</td>
         <td class="actions-cell"><button class="btn small ${u.active ? 'danger' : 'secondary'}" data-toggle="${u.id}">${u.active ? 'Deactivate' : 'Reactivate'}</button></td></tr>`).join('')}</tbody></table></div></section>
-      <div class="muted small" style="margin-top:8px">RKZ = sales engineer code (e.g. RV). Sales engineers see only records carrying their RKZ; admins see everything; view-only users see everything but cannot create or change anything.</div>`;
+      <div class="muted small" style="margin-top:8px">RKZ = sales engineer code (e.g. RV). Sales engineers see only records carrying their RKZ; admins see everything; view-only users see everything but cannot create or change anything.
+      Presence = the CRM tab open in a browser (Active &lt; 5 min, Idle &lt; 30 min, otherwise Out) — it is not a measure of work.</div>`;
     $('btn-new-user').onclick = () => {
       openModal('Add User', `<div class="modal-form">
         <div class="full"><label>Duztec email</label><input id="nu-email" type="email" placeholder="name@duztec.in"></div>
@@ -758,9 +794,92 @@
     $('lh-go').onclick = () => loginHistory($('lh-email').value.trim(), +$('lh-days').value);
   }
 
+  // ================= targets =================
+  const tval = (t, v) => t.measure.endsWith('_value') ? money(v) : String(Math.round(v));
+  function targetCard(t) {
+    const fill = t.state === 'done' ? 'done' : (t.pct + 10 < t.elapsed_pct ? 'behind' : '');
+    return `<div class="target"><div class="t-head"><b>${esc(t.measure_label)}</b><span class="muted small">${esc(t.period_type)} · ${esc(t.period_start)} → ${esc(t.period_end)}</span></div>
+      <div class="t-bar"><div class="t-fill ${fill}" style="width:${Math.min(100, t.pct)}%"></div><div class="t-elapsed" style="left:${Math.min(100, t.elapsed_pct)}%" title="time elapsed: ${t.elapsed_pct}% of the period"></div></div>
+      <div class="t-meta"><span>Target <b>${tval(t, t.amount)}</b></span><span>Achieved <b>${tval(t, t.achieved)}</b> (${t.pct}%)</span><span>Remaining <b>${tval(t, t.remaining)}</b></span><span><b>${t.days_left}</b> day${t.days_left === 1 ? '' : 's'} left</span></div>
+      ${isAdmin() ? `<div class="muted small" style="margin-top:4px">${esc(t.email)} · RKZ ${esc(t.rkz)}${t.note ? ' · ' + esc(t.note) : ''}</div>` : (t.note ? `<div class="muted small" style="margin-top:4px">${esc(t.note)}</div>` : '')}</div>`;
+  }
+  async function renderTargetBlock() {
+    const host = $('tg-block'); if (!host) return;
+    try {
+      if (isAdmin()) {
+        const ov = await api('/api/targets/overview');
+        host.innerHTML = ov.targets.map(targetCard).join('') || `<div class="muted small">No target covers today. Set them in the <button class="link-btn" id="tg-go">Targets</button> tab.</div>`;
+        const g = $('tg-go'); if (g) g.onclick = () => switchView('targets');
+      } else {
+        const m = await api('/api/targets/mine');
+        host.innerHTML = m.current.map(targetCard).join('') || '<div class="muted small">No target has been set for you for the current period.</div>';
+      }
+    } catch (e) { host.innerHTML = `<div class="muted small">${esc(e.message)}</div>`; }
+  }
+  async function renderTargets() {
+    const [ov, all, meta] = await Promise.all([api('/api/targets/overview'), api('/api/targets'), api('/api/targets/measures')]);
+    const without = ov.engineers.filter(u => !ov.targets.some(t => t.email === u.email));
+    $('view').innerHTML = `<section class="card filters"><div class="filter-actions"><button class="btn primary" id="btn-new-t">+ Set Target</button></div>
+      <div class="muted small">One target per user, measure and period. Achievement is computed live from the user's RKZ records — orders by PO date, quotations by the date they were marked Sent, enquiries by enquiry date.</div></section>
+      <section class="card"><h2>Running now <span class="muted small">(${ov.targets.length})</span></h2><div class="target-grid">${ov.targets.map(targetCard).join('') || '<div class="muted">No target covers today.</div>'}</div>
+      ${without.length ? `<div class="muted small" style="margin-top:8px">No running target: ${without.map(u => esc(u.email) + ' (' + esc(u.rkz) + ')').join(', ')}</div>` : ''}</section>
+      <section class="card"><h2>All targets <span class="muted small">(${all.length})</span></h2><div class="table-wrap"><table><thead><tr><th>User</th><th>RKZ</th><th>Measure</th><th>Period</th><th class="num">Target</th><th class="num">Achieved</th><th class="num">%</th><th>State</th><th></th></tr></thead>
+      <tbody>${all.map(t => `<tr class="${t.state === 'expired' && t.pct < 100 ? 'row-critical' : ''}"><td>${esc(t.email)}</td><td>${esc(t.rkz)}</td><td>${esc(t.measure_label)}</td><td>${esc(t.period_type)} · ${esc(t.period_start)} → ${esc(t.period_end)}</td>
+        <td class="num">${tval(t, t.amount)}</td><td class="num">${tval(t, t.achieved)}</td><td class="num">${t.pct}%</td><td>${pill(t.state === 'done' ? 'won' : t.state === 'expired' ? 'lost' : t.state === 'upcoming' ? 'draft' : 'sent', t.state)}</td>
+        <td class="actions-cell"><button class="btn small" data-tedit="${t.id}">Edit</button><button class="btn small danger" data-tdel="${t.id}">Delete</button></td></tr>`).join('') || '<tr class="empty"><td colspan="9">No targets yet</td></tr>'}</tbody></table></div></section>`;
+    $('btn-new-t').onclick = () => targetForm(null, ov.engineers, meta);
+    document.querySelectorAll('[data-tedit]').forEach(b => b.onclick = () => targetForm(all.find(x => x.id == b.dataset.tedit), ov.engineers, meta));
+    document.querySelectorAll('[data-tdel]').forEach(b => b.onclick = async () => { if (!confirm('Delete this target?')) return; try { await api('/api/targets/' + b.dataset.tdel, { method: 'DELETE' }); flash('Target deleted'); renderTargets(); } catch (e) { flash(e.message, false); } });
+  }
+  function targetForm(t, engineers, meta) {
+    const q = t || {}; const users = engineers.map(u => u.email); if (q.email && !users.includes(q.email)) users.push(q.email);
+    openModal(t ? 'Edit target' : 'Set target', `<div class="modal-form">
+      <div class="full"><label>User</label><select id="t-email">${users.map(e => `<option ${e === q.email ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>${users.length ? '' : '<div class="muted small">No user has an RKZ code yet — assign codes in the Users tab first.</div>'}</div>
+      <div><label>Measure</label><select id="t-measure">${Object.entries(meta.measures).map(([k, v]) => `<option value="${k}" ${(q.measure || meta.default) === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
+      <div><label>Period</label><select id="t-period">${meta.periods.map(p => `<option ${p === (q.period_type || 'monthly') ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+      <div><label>Period start</label><input type="date" id="t-start" value="${esc(q.period_start || today().slice(0, 7) + '-01')}"></div>
+      <div><label>Target amount</label><input type="number" id="t-amount" value="${q.amount || ''}" min="0" step="any" placeholder="e.g. 5000000"></div>
+      <div class="full"><label>Note</label><input id="t-note" value="${esc(q.note || '')}" placeholder="optional"></div>
+      <div class="full muted small">The start is snapped to the 1st of its month and the end is derived from the period (yearly = 12 months; start yearly targets in April for the financial year).</div>
+      <div class="full"><button class="btn primary" id="t-save">${t ? 'Save' : 'Set target'}</button></div></div>`);
+    $('t-save').onclick = async () => {
+      const body = { email: $('t-email').value, measure: $('t-measure').value, period_type: $('t-period').value, period_start: $('t-start').value, amount: +$('t-amount').value || 0, note: $('t-note').value };
+      try { const r = t ? await api('/api/targets/' + t.id, { method: 'PUT', body }) : await api('/api/targets', { body }); closeModal(); flash('Target ' + (t ? 'updated' : 'set') + ' · ' + r.period_start + ' → ' + r.period_end); renderTargets(); }
+      catch (e) { flash(e.message, false); }
+    };
+  }
+
+  // ================= products =================
+  async function renderProducts() {
+    const list = await api('/api/products');
+    $('view').innerHTML = `<section class="card filters"><div class="filter-actions">${isAdmin() ? '<button class="btn primary" id="btn-new-p" data-write>+ New Product</button>' : ''}</div>
+      <div class="muted small">${list.length} products. Pick a product on a quotation line to fill its description, HSN, unit and default rate; the specification prints on the quotation under "Technical Specifications".</div></section>
+      <section class="card"><div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>HSN</th><th>Unit</th><th class="num">Rate ₹</th><th>Specification</th><th class="num">Used on</th><th>Status</th>${isAdmin() ? '<th></th>' : ''}</tr></thead>
+      <tbody>${list.map(p => `<tr class="${p.active ? '' : 'row-critical'}"><td><b>${esc(p.code)}</b></td><td class="wrap">${esc(p.name)}</td><td>${esc(p.hsn)}</td><td>${esc(p.unit)}</td><td class="num">${inr(p.rate)}</td><td class="spec">${esc(p.specification || '')}</td><td class="num">${p.used_on}</td><td>${p.active ? 'Active' : 'Retired'}</td>
+        ${isAdmin() ? `<td class="actions-cell"><button class="btn small" data-pedit="${p.id}" data-write>Edit</button>${p.active ? `<button class="btn small danger" data-pret="${p.id}" data-write>Retire</button>` : ''}</td>` : ''}</tr>`).join('') || '<tr class="empty"><td colspan="9">No products yet</td></tr>'}</tbody></table></div></section>`;
+    const nb = $('btn-new-p'); if (nb) nb.onclick = () => productForm();
+    document.querySelectorAll('[data-pedit]').forEach(b => b.onclick = () => productForm(list.find(x => x.id == b.dataset.pedit)));
+    document.querySelectorAll('[data-pret]').forEach(b => b.onclick = async () => { if (!confirm('Retire this product? Existing quotation lines keep it; it just disappears from the dropdown.')) return; try { await api('/api/products/' + b.dataset.pret, { method: 'DELETE' }); flash('Product retired'); renderProducts(); } catch (e) { flash(e.message, false); } });
+  }
+  function productForm(p) {
+    const q = p || {};
+    openModal(p ? 'Edit product ' + p.code : 'New Product', `<div class="modal-form">
+      <div><label>Code</label><input id="p-code" value="${esc(q.code || '')}" style="text-transform:uppercase" placeholder="e.g. MB-50"></div><div><label>Name</label><input id="p-name" value="${esc(q.name || '')}"></div>
+      <div><label>HSN / SAC</label><input id="p-hsn" value="${esc(q.hsn || '')}"></div><div><label>Unit</label><input id="p-unit" value="${esc(q.unit || 'Nos.')}"></div>
+      <div><label>Default rate ₹ (0 = quote each time)</label><input type="number" id="p-rate" value="${q.rate || 0}" min="0" step="any"></div>
+      <div><label>Status</label><select id="p-active"><option value="1" ${q.active !== 0 ? 'selected' : ''}>Active</option><option value="0" ${q.active === 0 ? 'selected' : ''}>Retired</option></select></div>
+      <div class="full"><label>Specification (printed on quotations that use this product)</label><textarea id="p-spec" rows="7" placeholder="Capacity, throw distance, motor rating, materials, controls…">${esc(q.specification || '')}</textarea></div>
+      <div class="full"><button class="btn primary" id="p-save">${p ? 'Save' : 'Add product'}</button></div></div>`);
+    $('p-save').onclick = async () => {
+      const body = { code: $('p-code').value, name: $('p-name').value, hsn: $('p-hsn').value, unit: $('p-unit').value, rate: +$('p-rate').value || 0, specification: $('p-spec').value, active: +$('p-active').value };
+      try { if (p) await api('/api/products/' + p.id, { method: 'PUT', body }); else await api('/api/products', { body }); closeModal(); flash(p ? 'Product updated' : 'Product added'); renderProducts(); }
+      catch (e) { flash(e.message, false); }
+    };
+  }
+
   // ================= nav =================
-  const VIEWS = { dash: renderDash, enquiries: renderEnquiries, quotes: renderQuotes, orders: renderOrders, lost: renderLost, customers: renderCustomers, followups: renderFollowups, users: renderUsers };
-  const TITLES = { dash: 'Sales Dashboard', enquiries: 'Enquiries', quotes: 'Quotations', orders: 'Orders', lost: 'Lost Deals', customers: 'Customers', followups: 'Follow-ups', users: 'Users' };
+  const VIEWS = { dash: renderDash, enquiries: renderEnquiries, quotes: renderQuotes, orders: renderOrders, lost: renderLost, customers: renderCustomers, products: renderProducts, followups: renderFollowups, targets: renderTargets, users: renderUsers };
+  const TITLES = { dash: 'Sales Dashboard', enquiries: 'Enquiries', quotes: 'Quotations', orders: 'Orders', lost: 'Lost Deals', customers: 'Customers', products: 'Products', followups: 'Follow-ups', targets: 'Targets', users: 'Users' };
   function switchView(v) {
     view = v;
     document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('active', b.dataset.view === v));

@@ -30,6 +30,9 @@ class Settings:
     auth: dict[str, Any] = field(default_factory=dict)
     uploads: dict[str, Any] = field(default_factory=dict)
     sla: dict[str, Any] = field(default_factory=dict)
+    products_seed: list[dict[str, Any]] = field(default_factory=list)
+    targets: dict[str, Any] = field(default_factory=dict)
+    presence: dict[str, Any] = field(default_factory=dict)
     uploads_dir: Path = BASE_DIR / "data" / "uploads"
     db: Path = BASE_DIR / "data" / "crm.db"
     logs: Path = BASE_DIR / "data" / "logs"
@@ -67,6 +70,10 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
         raw = _deep_merge(raw, {"auth": {"smtp": env_smtp}})
     if os.environ.get("DUZTEC_PORT"):
         raw = _deep_merge(raw, {"app": {"port": int(os.environ["DUZTEC_PORT"])}})
+    # Point a second instance at its own data (used for testing without touching the live database)
+    for var, key in (("DUZTEC_DB", "db"), ("DUZTEC_UPLOADS", "uploads"), ("DUZTEC_LOGS", "logs")):
+        if os.environ.get(var):
+            raw = _deep_merge(raw, {"paths": {key: os.environ[var]}})
     app, paths = raw.get("app") or {}, raw.get("paths") or {}
     s = Settings()
     s.host = app.get("host", s.host); s.port = int(app.get("port", s.port))
@@ -80,6 +87,9 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
     s.auth = raw.get("auth") or {}
     s.uploads = raw.get("uploads") or {}
     s.sla = raw.get("sla") or {}
+    s.products_seed = [dict(p) for p in (raw.get("products_seed") or [])]
+    s.targets = raw.get("targets") or {}
+    s.presence = raw.get("presence") or {}
     s.uploads_dir = s.resolve(paths.get("uploads", s.uploads_dir))
     s.db = s.resolve(paths.get("db", s.db))
     s.logs = s.resolve(paths.get("logs", s.logs))

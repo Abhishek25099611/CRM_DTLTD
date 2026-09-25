@@ -61,8 +61,12 @@ def inr(v: float) -> str:
     return ("-" if neg else "") + f"{s}.{int(round(frac * 100)):02d}"
 
 
-def render(q: dict, items: list[dict], customer: dict, contact: dict | None) -> str:
+def render(q: dict, items: list[dict], customer: dict, contact: dict | None, specs: list[dict] | None = None) -> str:
     c = SETTINGS.company
+    spec_html = ""
+    if specs:
+        spec_html = "<h4>Technical Specifications</h4>" + "".join(
+            f"<p class='sec'><b>{escape(s['name'])}</b><br>{escape(s['specification'])}</p>" for s in specs)
     logo = "data:image/png;base64," + base64.b64encode(_LOGO.read_bytes()).decode()
     items = [{**i, "qty": i["qty"] or 0, "rate": i["rate"] or 0, "gst_pct": i["gst_pct"] or 0} for i in items]
     sub = sum(i["qty"] * i["rate"] for i in items)
@@ -132,6 +136,7 @@ def render(q: dict, items: list[dict], customer: dict, contact: dict | None) -> 
 <tr class="total"><td colspan='8' class='num'>Grand Total</td><td class='num'>₹ {inr(total)}</td></tr>
 </tbody></table>
 <p><i>{escape(amount_in_words(total))}</i></p>
+{spec_html}
 {sections}
 <table class="terms">
 <tr><td>Delivery</td><td>{escape(q.get('delivery_terms') or '')}</td></tr>

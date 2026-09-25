@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from . import auth, db, import_mis
 from .config import LOGGER, SETTINGS
 from . import (routes_customers, routes_dashboard, routes_documents, routes_enquiries, routes_operations,
-               routes_quotations)
+               routes_products, routes_quotations, routes_targets)
 
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -21,7 +21,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 PUBLIC_PATHS = ("/api/auth/request-otp", "/api/auth/verify", "/api/auth/me", "/api/auth/logout", "/api/health")
 
 
-VIEWER_ALLOWED_WRITES = ("/api/auth/logout",)
+VIEWER_ALLOWED_WRITES = ("/api/auth/logout", "/api/auth/heartbeat")
 
 
 @app.middleware("http")
@@ -52,9 +52,11 @@ def _startup():
     res = import_mis.run()
     LOGGER.info("Startup import: %s", res)
     db.backfill_states()
+    db.seed_products()
 
 
-for r in (routes_dashboard, routes_customers, routes_enquiries, routes_quotations, routes_operations, routes_documents):
+for r in (routes_dashboard, routes_customers, routes_enquiries, routes_quotations, routes_operations, routes_documents,
+          routes_products, routes_targets):
     app.include_router(r.router)
 app.include_router(auth.router)
 

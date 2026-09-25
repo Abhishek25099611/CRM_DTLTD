@@ -65,6 +65,32 @@ def summary(request: Request):
         elif st == "warn": sla["open_warn"] += 1
     quoted = sla["in_time"] + sla["late"]
     sla["pct_in_time"] = round(100 * sla["in_time"] / quoted, 1) if quoted else None
+    # Month-wise series for the last 12 months: enquiries -> quotations (+value, won) -> orders (+value)
+    y, m, keys = today[:4], int(today[5:7]), []
+    yy, mm = int(y), m
+    for _ in range(12):
+        keys.append(f"{yy:04d}-{mm:02d}")
+        mm -= 1
+        if mm == 0:
+            mm, yy = 12, yy - 1
+    series = {k: {"m": k, "enquiries": 0, "quotations": 0, "quotation_value": 0.0, "won": 0, "orders": 0, "order_value": 0.0}
+              for k in reversed(keys)}
+    for r in con.execute(f"SELECT substr(date,1,7) m FROM enquiries WHERE 1=1{E}", a):
+        if r["m"] in series:
+            series[r["m"]]["enquiries"] += 1
+    for r in con.execute(f"SELECT id, substr(date,1,7) m, status FROM quotations q WHERE status!='superseded'{Q}", a):
+        if r["m"] in series:
+            series[r["m"]]["quotations"] += 1
+            series[r["m"]]["quotation_value"] += _q_totals(con, r["id"])["total"]
+            if r["status"] == "won":
+                series[r["m"]]["won"] += 1
+    for r in con.execute(f"""SELECT o.value v, substr(COALESCE(NULLIF(o.po_date,''), o.created_at),1,7) m FROM orders o
+                             LEFT JOIN quotations q ON q.id=o.quotation_id{o_where}""", (sc, sc) if sc else ()):
+        if r["m"] in series:
+            series[r["m"]]["orders"] += 1
+            series[r["m"]]["order_value"] += float(r["v"] or 0)
+    monthly_series = [{**v, "quotation_value": round(v["quotation_value"], 2), "order_value": round(v["order_value"], 2)}
+                      for v in series.values()]
     con.close()
     won_value = float(orders["v"] or 0)
     decided_n = int(orders["n"]) + lost
@@ -73,7 +99,7 @@ def summary(request: Request):
             "won_value": round(won_value, 2), "lost_value": round(lost_value, 2),
             "win_rate_count": round(100 * orders["n"] / decided_n, 1) if decided_n else 0.0,
             "win_rate_value": round(100 * won_value / (won_value + lost_value), 1) if (won_value + lost_value) else 0.0,
-            "monthly_quotes": monthly, "recent": recent, "today": today, "sla": sla,
+            "monthly_quotes": monthly, "monthly": monthly_series, "recent": recent, "today": today, "sla": sla,
             "scope_rkz": sc}
 
 

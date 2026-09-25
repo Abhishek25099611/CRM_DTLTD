@@ -179,3 +179,19 @@ body.role-viewer [data-write]{display:none!important}
 .detail-section h3{margin:0 0 6px}
 .link-btn{background:none;border:0;color:var(--brand);font-weight:700;cursor:pointer;padding:0;font:inherit;text-decoration:underline}
 @media(max-width:700px){.detail-grid{grid-template-columns:1fr}}
+
+/* ---- Phase 3: targets, products, presence, charts ---- */
+.target{background:var(--surface,#fff);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.target .t-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.target .t-head b{font-family:var(--font-head);font-size:16px;letter-spacing:.3px;color:var(--brand)}
+.target .t-bar{height:12px;border-radius:99px;background:var(--gray);overflow:hidden;margin:8px 0 6px;position:relative}
+.target .t-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--brand),var(--accent))}
+.target .t-fill.done{background:var(--success)}.target .t-fill.behind{background:var(--warning)}
+.target .t-elapsed{position:absolute;top:-2px;width:2px;height:16px;background:var(--critical);opacity:.7}
+.target .t-meta{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
+.target .t-meta b{color:var(--ink)}
+.target-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.presence{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle;background:#9ca3af}
+.presence.active{background:var(--success);box-shadow:0 0 0 3px rgba(22,163,74,.18)}.presence.idle{background:var(--warning)}
+td.spec{white-space:pre-line;max-width:420px;font-size:12.5px;color:var(--muted)}
+.items-editor select.i-prod{width:100%;padding:5px 6px;border:1px solid var(--line);border-radius:4px;font:inherit;font-size:12.5px;background:#fff}

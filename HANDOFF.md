@@ -23,6 +23,10 @@ sections 1–7 before the first install; sections 8–15 are operational referen
 | Users | OTP login, admin/engineer/viewer roles, **RKZ codes** with per-engineer data isolation |
 | Documents | Files attached to customers, enquiries, quotations and orders (offers, costing sheets, drawings, customer PO PDF) — stored under `data/uploads/`, download only when logged in |
 | SLA | Enquiry → quotation 48-working-hour timer (Mon–Sat 09:00–18:00) with badges and a dashboard KPI |
+| Products | Master list (code, HSN, unit, rate, specification) feeding a dropdown on quotation lines; specifications print on the quotation |
+| Targets | Admin sets per-user targets (₹ order value by default; also counts) per month/quarter/year; progress bars on each engineer's dashboard, team overview for admins |
+| Presence | Users tab shows Active / Idle / Out from a browser heartbeat (tab open ≠ working) |
+| Charts | Monthly funnel, order-value trend and quotation-vs-order value for the last 12 months |
 | Export | Excel export of every register (incl. Lost deals and login history); one-click SQLite backup |
 
 **Roles and RKZ scoping (important):**

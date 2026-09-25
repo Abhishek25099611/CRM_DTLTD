@@ -66,6 +66,21 @@ duztec_crm/
   enquiries, quotations (printed), orders and the Lost tab.
 - **Net / Total price** on the print: Net = qty × rate (before GST), Total = Net + GST; discount
   applies in the totals block only (Duztec's chosen definition).
+- **Products master** (`routes_products.py`): code/name/HSN/unit/default rate/specification; seeded
+  once from `config.yaml → products_seed` while empty; quotation lines link via
+  `quotation_items.product_id` and the print adds a "Technical Specifications" block. Retire, never
+  delete (lines keep the link).
+- **Targets** (`routes_targets.py`): per user + measure + period (monthly/quarterly/yearly, start
+  snapped to the 1st); achievement computed live from RKZ records (orders by PO date, quotations by
+  `sent_at`, enquiries by date). Engineers see own (`/api/targets/mine`), admins the team overview.
+- **Presence**: the browser posts `/api/auth/heartbeat` once a minute → `users.last_seen` →
+  Active/Idle/Out on the Users tab (thresholds in `config.yaml → presence`). Measures "tab open",
+  not work.
+- **Monthly series** (`/api/summary → monthly`, last 12 months) feed the Monthly Funnel, Order Value
+  Trend and Quotation-vs-Order charts (`charts.js` `grouped` / `line`, one ₹ scale — never dual-axis).
+- **Testing without touching live data**: start a second instance with
+  `DUZTEC_PORT=8026 DUZTEC_DB=/tmp/t.db DUZTEC_UPLOADS=/tmp/up DUZTEC_LOGS=/tmp/logs` pointing at a
+  *copy* of `crm.db`.
 - **Schema migrations**: `db.MIGRATIONS` adds missing columns at startup, so `git pull` + restart
   upgrades an existing database in place.
 - **Before real quotations**: replace the GSTIN placeholder, bank details and default terms in

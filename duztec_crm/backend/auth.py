@@ -240,9 +240,33 @@ def require_admin(request: Request) -> dict:
 def list_users(request: Request):
     require_admin(request)
     con = db.connect()
-    out = db.rows(con.execute("SELECT id,email,name,role,active,rkz,created_at,last_login FROM users ORDER BY email"))
+    out = db.rows(con.execute("SELECT id,email,name,role,active,rkz,created_at,last_login,last_seen FROM users ORDER BY email"))
     con.close()
+    act = int(SETTINGS.presence.get("active_minutes", 5)) * 60
+    idle = int(SETTINGS.presence.get("idle_minutes", 30)) * 60
+    now_dt = datetime.now()
+    for u in out:
+        age = None
+        if u.get("last_seen"):
+            try:
+                age = (now_dt - datetime.strptime(u["last_seen"], "%Y-%m-%d %H:%M:%S")).total_seconds()
+            except ValueError:
+                age = None
+        u["presence"] = "out" if age is None or age > idle else ("active" if age <= act else "idle")
     return out
+
+
+@router.post("/heartbeat")
+def heartbeat(request: Request):
+    """Browser pings every minute while the CRM tab is open — feeds Active / Idle / Out on the Users tab.
+    It measures 'CRM open in a browser', not 'working'."""
+    u = current_user(request)
+    if not u:
+        raise HTTPException(401, {"error_type": "unauthenticated", "detail": "Please log in."})
+    con = db.connect()
+    con.execute("UPDATE users SET last_seen=? WHERE email=?", (db.now(), u["email"]))
+    con.commit(); con.close()
+    return {"ok": True}
 
 
 @router.post("/users")

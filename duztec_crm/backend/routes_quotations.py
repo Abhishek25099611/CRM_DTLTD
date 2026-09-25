@@ -86,9 +86,9 @@ def quotation_detail(qid: int, request: Request):
 def _save_items(con, qid: int, items: list[ItemIn]):
     con.execute("DELETE FROM quotation_items WHERE quotation_id=?", (qid,))
     for i, it in enumerate(items, 1):
-        con.execute("""INSERT INTO quotation_items(quotation_id,sr,description,hsn,qty,unit,rate,gst_pct)
-                       VALUES(?,?,?,?,?,?,?,?)""",
-                    (qid, i, it.description.strip(), it.hsn, it.qty, it.unit, it.rate, it.gst_pct))
+        con.execute("""INSERT INTO quotation_items(quotation_id,sr,description,hsn,qty,unit,rate,gst_pct,product_id)
+                       VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (qid, i, it.description.strip(), it.hsn, it.qty, it.unit, it.rate, it.gst_pct, it.product_id))
 
 
 def _with_defaults(q: QuotationIn) -> dict:
@@ -237,5 +237,11 @@ def print_quotation(qid: int, request: Request):
     items = db.rows(con.execute("SELECT * FROM quotation_items WHERE quotation_id=? ORDER BY sr", (qid,)))
     cust = dict(con.execute("SELECT * FROM customers WHERE id=?", (q["customer_id"],)).fetchone())
     ct = con.execute("SELECT * FROM contacts WHERE id=?", (q["contact_id"],)).fetchone() if q["contact_id"] else None
+    # specification blocks for line items linked to the Products master (first occurrence order, no repeats)
+    specs, seen = [], set()
+    for r in con.execute("""SELECT p.id, p.name, p.specification FROM quotation_items i JOIN products p ON p.id=i.product_id
+                            WHERE i.quotation_id=? AND p.specification!='' ORDER BY i.sr""", (qid,)):
+        if r["id"] not in seen:
+            seen.add(r["id"]); specs.append({"name": r["name"], "specification": r["specification"]})
     con.close()
-    return HTMLResponse(print_quote.render(dict(q), items, cust, dict(ct) if ct else None))
+    return HTMLResponse(print_quote.render(dict(q), items, cust, dict(ct) if ct else None, specs))

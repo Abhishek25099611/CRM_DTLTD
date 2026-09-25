@@ -43,6 +43,26 @@ class ItemIn(BaseModel):
     unit: str = "Nos."
     rate: float = 0
     gst_pct: float = 18
+    product_id: int | None = None   # chosen from the Products master (pulls its specification onto the print)
+
+
+class ProductIn(BaseModel):
+    code: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    hsn: str = ""
+    unit: str = "Nos."
+    rate: float = 0
+    specification: str = ""
+    active: int = 1
+
+
+class TargetIn(BaseModel):
+    email: str
+    measure: str = "order_value"
+    period_type: str = "monthly"
+    period_start: str            # YYYY-MM-DD; the end is derived from period_type
+    amount: float = 0
+    note: str = ""
 
 
 class QuotationIn(BaseModel):

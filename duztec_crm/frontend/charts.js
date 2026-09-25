@@ -61,5 +61,43 @@ window.DzCharts = (function () {
     const H2 = H + (lines - 1) * 18;
     el.innerHTML = s.replace(`viewBox="0 0 ${W} ${H}" width="100%" height="${H}"`, `viewBox="0 0 ${W} ${H2}" width="100%" height="${H2}"`) + '</svg>';
   }
-  return { bars, hbars, stacked, short, STATUS };
+  /* Grouped bars on ONE scale: cats [labels], series [{name, color, values[]}]; opts.fmt formats values */
+  function grouped(el, cats, series, opts = {}) {
+    const W = el.clientWidth || 560, H = opts.height || 240, L = 56, R = 12, T = 30, B = 34;
+    const fmt = opts.fmt || short;
+    const max = nice(Math.max(1, ...series.flatMap(s => s.values)));
+    const n = Math.max(1, cats.length), gw = (W - L - R) / n, bw = Math.max(4, Math.min(26, (gw * 0.72) / Math.max(1, series.length)));
+    const y = v => T + (H - T - B) * (1 - v / max);
+    let s = `<svg xmlns="${NS}" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${esc(opts.title || '')}">`;
+    for (let k = 0; k <= 4; k++) { const v = max * k / 4, yy = y(v); s += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="${GRID}"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end" font-size="11" fill="${MUTED}">${esc(fmt(v))}</text>`; }
+    let lx = L; series.forEach(sr => { s += `<rect x="${lx}" y="${T - 22}" width="10" height="10" rx="2" fill="${sr.color}"/><text x="${lx + 14}" y="${T - 13}" font-size="11" fill="${MUTED}">${esc(sr.name)}</text>`; lx += 14 + sr.name.length * 6.4 + 16; });
+    cats.forEach((c, i) => {
+      const x0 = L + gw * i + (gw - bw * series.length) / 2;
+      series.forEach((sr, j) => { const v = sr.values[i] || 0, yy = y(v);
+        s += `<g><title>${esc(c)} · ${esc(sr.name)}: ${esc(fmt(v))}</title><rect x="${(x0 + bw * j).toFixed(1)}" y="${yy.toFixed(1)}" width="${Math.max(1, bw - 1.5).toFixed(1)}" height="${Math.max(0, H - B - yy).toFixed(1)}" rx="2" fill="${sr.color}"/></g>`; });
+      s += `<text x="${(L + gw * i + gw / 2).toFixed(1)}" y="${H - B + 15}" text-anchor="middle" font-size="${n > 8 ? 10 : 11}" fill="${MUTED}">${esc(c)}</text>`;
+    });
+    el.innerHTML = s + '</svg>';
+  }
+
+  /* Line with soft area fill, emphasised last point: points [{label, value, tip}] */
+  function line(el, points, opts = {}) {
+    const W = el.clientWidth || 560, H = opts.height || 220, L = 56, R = 16, T = 22, B = 34;
+    const fmt = opts.fmt || short, color = opts.color || BLUE;
+    const max = nice(Math.max(1, ...points.map(p => p.value)));
+    const n = points.length, xs = i => L + (W - L - R) * (n > 1 ? i / (n - 1) : 0.5), y = v => T + (H - T - B) * (1 - v / max);
+    let s = `<svg xmlns="${NS}" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${esc(opts.title || '')}">`;
+    for (let k = 0; k <= 4; k++) { const v = max * k / 4, yy = y(v); s += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="${GRID}"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end" font-size="11" fill="${MUTED}">${esc(fmt(v))}</text>`; }
+    if (n) {
+      const d = points.map((p, i) => `${i ? 'L' : 'M'}${xs(i).toFixed(1)},${y(p.value).toFixed(1)}`).join('');
+      s += `<path d="${d}L${xs(n - 1).toFixed(1)},${(H - B).toFixed(1)}L${xs(0).toFixed(1)},${(H - B).toFixed(1)}Z" fill="${color}" opacity=".12"/>`;
+      s += `<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
+      points.forEach((p, i) => { const last = i === n - 1;
+        s += `<g><title>${esc(p.label)}: ${esc(p.tip || fmt(p.value))}</title><circle cx="${xs(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="${last ? 5 : 3.5}" fill="${last ? color : '#fff'}" stroke="${color}" stroke-width="2"/></g>`;
+        if (last) s += `<text x="${xs(i).toFixed(1)}" y="${(y(p.value) - 10).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${INK}">${esc(fmt(p.value))}</text>`;
+        s += `<text x="${xs(i).toFixed(1)}" y="${H - B + 15}" text-anchor="middle" font-size="${n > 8 ? 10 : 11}" fill="${MUTED}">${esc(p.label)}</text>`; });
+    } else s += `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-size="12" fill="${MUTED}">No data</text>`;
+    el.innerHTML = s + '</svg>';
+  }
+  return { bars, hbars, stacked, grouped, line, short, STATUS };
 })();

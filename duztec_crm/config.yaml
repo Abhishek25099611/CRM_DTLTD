@@ -49,6 +49,27 @@ uploads:                          # customer documents, PO PDFs, quotation attac
   categories: [Offer received, Costing sheet, Technical document, Customer requirement, Drawing,
                Reference document, Customer PO, Other]
 
+products_seed:                    # inserted ONCE when the Products master is empty; maintain in the Products tab afterwards.
+  # HSN 8424 = mechanical appliances for projecting/dispersing liquids; 9987 = installation services. CONFIRM with accounts.
+  - { code: MB-50,    name: "MB-50 Mist Cannon",                        hsn: "8424" }
+  - { code: MB-60,    name: "MB-60 Mist Cannon",                        hsn: "8424" }
+  - { code: MB-80,    name: "MB-80 Mist Cannon",                        hsn: "8424" }
+  - { code: TWG-50,   name: "TWG-50 Truck-mounted Water Gun",           hsn: "8424" }
+  - { code: DB-30,    name: "DB-30 Dust Buster",                        hsn: "8424" }
+  - { code: DB-40,    name: "DB-40 Dust Buster",                        hsn: "8424" }
+  - { code: SFDS,     name: "SFDS Single Fluid Dust Suppression System", hsn: "8424" }
+  - { code: EVAP-600, name: "EVAP-600 Evaporator",                      hsn: "8424" }
+  - { code: SPARES,   name: "Spares & consumables",                     hsn: "8424" }
+  - { code: SERVICE,  name: "Installation & commissioning",             hsn: "9987", unit: "Lot" }
+
+targets:                          # sales targets per user (admin sets; engineer sees own)
+  default_measure: order_value    # order_value | order_count | quotation_value | quotation_count | enquiry_count
+  financial_year_start_month: 4   # yearly targets run Apr–Mar
+
+presence:                         # Users tab status from the browser heartbeat
+  active_minutes: 5               # seen within 5 min  -> Active
+  idle_minutes: 30                # seen within 30 min -> Idle, else Out
+
 sla:                              # enquiry -> quotation turnaround (working hours)
   quote_within_hours: 48
   work_start_hour: 9

@@ -60,6 +60,16 @@ CREATE TABLE IF NOT EXISTS documents(
   stored_name TEXT NOT NULL, size INTEGER DEFAULT 0, mime TEXT DEFAULT '', note TEXT DEFAULT '',
   uploaded_by TEXT DEFAULT '', uploaded_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_documents_entity ON documents(entity_type, entity_id);
+CREATE TABLE IF NOT EXISTS products(
+  id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, hsn TEXT DEFAULT '',
+  unit TEXT DEFAULT 'Nos.', rate REAL DEFAULT 0, specification TEXT DEFAULT '',
+  active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS targets(
+  id INTEGER PRIMARY KEY, email TEXT NOT NULL, rkz TEXT DEFAULT '',
+  measure TEXT NOT NULL DEFAULT 'order_value',        -- order_value / order_count / quotation_value / quotation_count / enquiry_count
+  period_type TEXT NOT NULL DEFAULT 'monthly',        -- monthly / quarterly / yearly
+  period_start TEXT NOT NULL, period_end TEXT NOT NULL, amount REAL NOT NULL DEFAULT 0,
+  note TEXT DEFAULT '', created_by TEXT DEFAULT '', created_at TEXT NOT NULL);
 """
 
 
@@ -87,7 +97,29 @@ MIGRATIONS = [
     ("quotations", "guarantee", "TEXT DEFAULT ''"),
     ("quotations", "sent_at", "TEXT DEFAULT ''"),        # first time the quotation was marked Sent (48-h SLA)
     ("customers", "end_customer", "TEXT DEFAULT ''"),    # e.g. LIPL supplying JSW Dolvi
+    ("users", "last_seen", "TEXT DEFAULT ''"),           # browser heartbeat for Active / Idle / Out
+    ("quotation_items", "product_id", "INTEGER"),        # link to the Products master (specifications on print)
 ]
+
+
+def seed_products() -> int:
+    """Insert the config product list once, only while the master is empty."""
+    con = connect()
+    if con.execute("SELECT COUNT(*) FROM products").fetchone()[0] or not SETTINGS.products_seed:
+        con.close(); return 0
+    n = 0
+    for p in SETTINGS.products_seed:
+        code = str(p.get("code", "")).strip().upper()
+        if not code:
+            continue
+        con.execute("""INSERT OR IGNORE INTO products(code,name,hsn,unit,rate,specification,created_at)
+                       VALUES(?,?,?,?,?,?,?)""",
+                    (code, str(p.get("name") or code), str(p.get("hsn") or ""), str(p.get("unit") or "Nos."),
+                     float(p.get("rate") or 0), str(p.get("specification") or ""), now()))
+        n += 1
+    con.commit(); con.close()
+    LOGGER.info("Seeded %d products from config", n)
+    return n
 
 
 def init() -> None:
