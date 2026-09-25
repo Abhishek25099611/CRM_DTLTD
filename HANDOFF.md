@@ -20,8 +20,10 @@ sections 1–7 before the first install; sections 8–15 are operational referen
 | Customers | Master with GSTIN, state, pincode, contacts |
 | Follow-ups | Dated reminders with due/overdue list |
 | Dashboard | KPIs, funnel, quotations-by-month, **India map** (pincode bubbles or state heat) |
-| Users | OTP login, admin/engineer roles, **RKZ codes** with per-engineer data isolation |
-| Export | Excel export of every register; one-click SQLite backup |
+| Users | OTP login, admin/engineer/viewer roles, **RKZ codes** with per-engineer data isolation |
+| Documents | Files attached to customers, enquiries, quotations and orders (offers, costing sheets, drawings, customer PO PDF) — stored under `data/uploads/`, download only when logged in |
+| SLA | Enquiry → quotation 48-working-hour timer (Mon–Sat 09:00–18:00) with badges and a dashboard KPI |
+| Export | Excel export of every register (incl. Lost deals and login history); one-click SQLite backup |
 
 **Roles and RKZ scoping (important):**
 
@@ -263,12 +265,17 @@ WantedBy=multi-user.target
 
 ## 9. Backups — set this up on day one
 
-The entire database is one file: `duztec_crm\data\crm.db`.
+The system is two things on disk: the database `duztec_crm\data\crm.db` **and the uploaded
+documents folder `duztec_crm\data\uploads\`**. A backup that has one without the other is incomplete —
+the database rows would point at files that no longer exist.
 
 - **In-app:** Dashboard → *Backup database* (or `POST /api/backup`) writes a consistent copy
-  into `data\backup\crm_YYYYMMDD_HHMMSS.db`.
+  into `data\backup\crm_YYYYMMDD_HHMMSS.db` (database only).
 - **Nightly:** schedule `backup_crm.bat` (Task Scheduler, daily ~20:00). It creates a
-  timestamped copy and prunes copies older than 30 days.
+  timestamped database copy, prunes copies older than 30 days, and mirrors `data\uploads\`
+  into `data\backup\uploads\`.
+- **Disk space:** drawings and PDFs add up — size the server disk for the documents folder
+  (25 MB per file limit by default, `uploads.max_mb` in config).
 - **Off-machine:** weekly, copy `data\backup\` to a USB drive or cloud folder kept elsewhere.
   A backup on the same disk does not survive disk failure, theft or fire.
 - **Test a restore once:** stop the app, replace `crm.db` with a backup, start, log in, confirm

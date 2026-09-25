@@ -55,6 +55,17 @@ duztec_crm/
   onto the quotation `type`.
 - **Quotation text sections** (introduction, scope, warranty, guarantee) are pre-filled from
   `quotation_defaults` and printed on the letterhead; delivery/payment terms are multi-line.
+- **Documents**: files attach to customers, enquiries, quotations and orders (`routes_documents.py`);
+  stored under `data/uploads/<entity>/<id>/`, metadata in the `documents` table, served only to
+  logged-in users and subject to RKZ scope. Limits/categories in `config.yaml → uploads`.
+  **Back up `data/uploads` together with `crm.db`** (`backup_crm.bat` mirrors it).
+- **48-hour SLA**: `services.working_hours_between` counts Mon–Sat 09:00–18:00 (`config.yaml → sla`)
+  from enquiry punch-in (`created_at`) to the first `quotations.sent_at`; badges on enquiry cards,
+  KPI tile on the dashboard.
+- **End customer** lives on the customer master (`customers.end_customer`) and is shown on
+  enquiries, quotations (printed), orders and the Lost tab.
+- **Net / Total price** on the print: Net = qty × rate (before GST), Total = Net + GST; discount
+  applies in the totals block only (Duztec's chosen definition).
 - **Schema migrations**: `db.MIGRATIONS` adds missing columns at startup, so `git pull` + restart
   upgrades an existing database in place.
 - **Before real quotations**: replace the GSTIN placeholder, bank details and default terms in

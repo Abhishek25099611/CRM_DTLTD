@@ -164,3 +164,18 @@ body.role-viewer [data-write]{display:none!important}
 .kcard.type-RepeatOrder{border-left-color:var(--accent)}
 .modal-form textarea{min-height:64px;resize:vertical;font:inherit;line-height:1.45}
 .modal-form h3{font-family:var(--font-head);font-size:15px;letter-spacing:.5px;text-transform:uppercase;color:var(--brand)}
+
+/* ---- Phase 2: SLA badges, documents, detail view, lost tab ---- */
+.sla{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:800;margin-left:4px;vertical-align:middle}
+.sla-ok{background:#e6f4ea;color:#15803d}.sla-late{background:#fde8e8;color:#b91c1c}
+.sla-open{background:var(--tint,#eceff8);color:var(--brand)}.sla-warn{background:#fff1dc;color:#b45309}
+.sla-breach{background:var(--critical);color:#fff}.sla-na{display:none}
+.doc-list td{white-space:normal}.doc-drop{border:1.5px dashed var(--line);border-radius:8px;padding:12px;text-align:center;color:var(--muted);font-size:13px}
+.doc-drop input[type=file]{display:block;margin:8px auto 0}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 22px}
+.detail-grid .lbl{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-family:var(--font-head);font-weight:600}
+.detail-grid .val{font-size:14px;white-space:pre-line}
+.detail-section{margin-top:14px;padding-top:10px;border-top:1px solid var(--line)}
+.detail-section h3{margin:0 0 6px}
+.link-btn{background:none;border:0;color:var(--brand);font-weight:700;cursor:pointer;padding:0;font:inherit;text-decoration:underline}
+@media(max-width:700px){.detail-grid{grid-template-columns:1fr}}

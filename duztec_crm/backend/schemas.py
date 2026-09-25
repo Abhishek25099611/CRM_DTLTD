@@ -11,6 +11,7 @@ class CustomerIn(BaseModel):
     state: str = ""
     pincode: str = ""
     segment: str = ""
+    end_customer: str = ""    # the plant / end user when the customer is a trader or EPC
 
 
 class ContactIn(BaseModel):

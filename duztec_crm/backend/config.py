@@ -28,6 +28,9 @@ class Settings:
     state_keywords: dict[str, str] = field(default_factory=dict)
     pincode_keywords: dict[str, str] = field(default_factory=dict)
     auth: dict[str, Any] = field(default_factory=dict)
+    uploads: dict[str, Any] = field(default_factory=dict)
+    sla: dict[str, Any] = field(default_factory=dict)
+    uploads_dir: Path = BASE_DIR / "data" / "uploads"
     db: Path = BASE_DIR / "data" / "crm.db"
     logs: Path = BASE_DIR / "data" / "logs"
     backup: Path = BASE_DIR / "data" / "backup"
@@ -75,6 +78,9 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
     s.state_keywords = {str(k).lower(): str(v) for k, v in ((raw.get("geo") or {}).get("state_keywords") or {}).items()}
     s.pincode_keywords = {str(k).lower(): str(v) for k, v in ((raw.get("geo") or {}).get("pincode_keywords") or {}).items()}
     s.auth = raw.get("auth") or {}
+    s.uploads = raw.get("uploads") or {}
+    s.sla = raw.get("sla") or {}
+    s.uploads_dir = s.resolve(paths.get("uploads", s.uploads_dir))
     s.db = s.resolve(paths.get("db", s.db))
     s.logs = s.resolve(paths.get("logs", s.logs))
     s.backup = s.resolve(paths.get("backup", s.backup))

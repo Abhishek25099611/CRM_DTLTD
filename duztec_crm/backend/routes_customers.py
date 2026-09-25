@@ -14,11 +14,12 @@ def customers(q: str = ""):
     sql = """SELECT c.*, (SELECT COUNT(*) FROM enquiries e WHERE e.customer_id=c.id) enquiries,
              (SELECT COUNT(*) FROM quotations x WHERE x.customer_id=c.id AND x.status!='superseded') quotes,
              (SELECT COALESCE(SUM(value),0) FROM orders o WHERE o.customer_id=c.id) order_value,
-             (SELECT COUNT(*) FROM contacts ct WHERE ct.customer_id=c.id) contact_count
+             (SELECT COUNT(*) FROM contacts ct WHERE ct.customer_id=c.id) contact_count,
+             (SELECT COUNT(*) FROM documents d WHERE d.entity_type='customer' AND d.entity_id=c.id) document_count
              FROM customers c"""
     args: tuple = ()
     if q:
-        sql += " WHERE c.name LIKE ?"; args = (f"%{q}%",)
+        sql += " WHERE c.name LIKE ? OR c.end_customer LIKE ?"; args = (f"%{q}%", f"%{q}%")
     out = db.rows(con.execute(sql + " ORDER BY c.name COLLATE NOCASE", args))
     con.close()
     return out
@@ -31,8 +32,10 @@ def add_customer(c: CustomerIn):
     if ex:
         con.close()
         raise HTTPException(409, {"error_type": "duplicate", "detail": f"Customer already exists (id {ex['id']})"})
-    cur = con.execute("INSERT INTO customers(name,gstin,address,state,pincode,segment,created_at) VALUES(?,?,?,?,?,?,?)",
-                      (c.name.strip(), c.gstin, c.address, c.state, c.pincode.strip(), c.segment, db.now()))
+    cur = con.execute("""INSERT INTO customers(name,gstin,address,state,pincode,segment,end_customer,created_at)
+                         VALUES(?,?,?,?,?,?,?,?)""",
+                      (c.name.strip(), c.gstin, c.address, c.state, c.pincode.strip(), c.segment,
+                       c.end_customer.strip(), db.now()))
     db.log_activity(con, "customer", cur.lastrowid, "created", c.name)
     con.commit(); nid = cur.lastrowid; con.close()
     return {"id": nid}
@@ -41,8 +44,8 @@ def add_customer(c: CustomerIn):
 @router.put("/api/customers/{cid}")
 def edit_customer(cid: int, c: CustomerIn):
     con = db.connect()
-    con.execute("UPDATE customers SET name=?,gstin=?,address=?,state=?,pincode=?,segment=? WHERE id=?",
-                (c.name.strip(), c.gstin, c.address, c.state, c.pincode.strip(), c.segment, cid))
+    con.execute("UPDATE customers SET name=?,gstin=?,address=?,state=?,pincode=?,segment=?,end_customer=? WHERE id=?",
+                (c.name.strip(), c.gstin, c.address, c.state, c.pincode.strip(), c.segment, c.end_customer.strip(), cid))
     con.commit(); con.close()
     return {"ok": True}
 

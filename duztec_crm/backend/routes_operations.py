@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from . import auth, db
 from .schemas import AssignRkzIn, FollowupIn, OrderEditIn, StatusIn
-from .services import _is_admin, _scope
+from .services import _is_admin, _q_totals, _scope
 
 router = APIRouter()
 
@@ -110,6 +110,28 @@ def orders(request: Request):
     return out
 
 
+def _lost_rows(con, sc):
+    Q = " AND q.salesperson=?" if sc else ""
+    rows = db.rows(con.execute(f"""SELECT q.id, q.quote_no, q.rev, q.date, q.updated_at lost_on, q.lost_reason, q.salesperson,
+                                   q.type, q.enquiry_id, c.name customer, c.end_customer, c.state,
+                                   (SELECT description FROM quotation_items i WHERE i.quotation_id=q.id ORDER BY sr LIMIT 1) product,
+                                   (SELECT enq_no FROM enquiries e WHERE e.id=q.enquiry_id) enq_no
+                                   FROM quotations q JOIN customers c ON c.id=q.customer_id
+                                   WHERE q.status='lost'{Q} ORDER BY q.updated_at DESC""", (sc,) if sc else ()))
+    for r in rows:
+        r["value"] = _q_totals(con, r["id"])["total"]
+    return rows
+
+
+@router.get("/api/lost")
+def lost(request: Request):
+    """Lost deals, laid out like the Orders tab (quotation-based: a lost deal has no PO/SO)."""
+    con = db.connect()
+    out = _lost_rows(con, _scope(request))
+    con.close()
+    return out
+
+
 @router.put("/api/orders/{oid}")
 def edit_order(oid: int, body: OrderEditIn, request: Request):
     """SO number, PO details and payment terms are editable by an admin or the order's own RKZ."""
@@ -149,11 +171,16 @@ def export(register: str, request: Request):
         if not _is_admin(request):
             con.close(); raise HTTPException(403, {"error_type": "forbidden", "detail": "Admin access required."})
         queries["logins"] = ("SELECT at, action, detail FROM activity WHERE entity_type='user' AND action IN ('login','logout','session_expired') ORDER BY id DESC", ())
-    if register not in queries:
-        con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": register})
-    sql2, args3 = queries[register]
-    data = db.rows(con.execute(sql2, args3))
-    con.close()
+    if register == "lost":
+        data = [{k: r[k] for k in ("quote_no", "rev", "date", "lost_on", "customer", "end_customer", "product", "value",
+                                   "lost_reason", "salesperson", "type", "enq_no")} for r in _lost_rows(con, sc)]
+        con.close()
+    else:
+        if register not in queries:
+            con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": register})
+        sql2, args3 = queries[register]
+        data = db.rows(con.execute(sql2, args3))
+        con.close()
     wb = openpyxl.Workbook(); ws = wb.active; ws.title = register
     if data:
         ws.append(list(data[0].keys()))

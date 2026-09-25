@@ -1,4 +1,4 @@
-"""Enquiries: punch-in, kanban statuses."""
+"""Enquiries: punch-in, kanban statuses, 48-hour quotation SLA."""
 from __future__ import annotations
 
 from datetime import date
@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from . import db
 from .config import SETTINGS
 from .schemas import EnquiryIn, StatusIn
-from .services import _scope
+from .services import _scope, sla_for
 
 router = APIRouter()
 
@@ -16,8 +16,9 @@ router = APIRouter()
 def enquiries(request: Request, status: str = "", customer_id: int | None = None):
     sc = _scope(request)
     con = db.connect()
-    sql = """SELECT e.*, c.name customer, ct.name contact,
+    sql = """SELECT e.*, c.name customer, c.end_customer, ct.name contact,
              (SELECT COUNT(*) FROM quotations q WHERE q.enquiry_id=e.id AND q.status!='superseded') quote_count,
+             (SELECT MIN(q.sent_at) FROM quotations q WHERE q.enquiry_id=e.id AND q.sent_at!='') first_sent_at,
              (SELECT MIN(due_date) FROM followups f WHERE f.entity_type='enquiry' AND f.entity_id=e.id AND f.done=0) next_followup
              FROM enquiries e JOIN customers c ON c.id=e.customer_id
              LEFT JOIN contacts ct ON ct.id=e.contact_id WHERE 1=1"""
@@ -30,6 +31,8 @@ def enquiries(request: Request, status: str = "", customer_id: int | None = None
         sql += " AND e.customer_id=?"; args.append(customer_id)
     out = db.rows(con.execute(sql + " ORDER BY e.id DESC", args))
     con.close()
+    for r in out:
+        r.update(sla_for(r["created_at"], r["first_sent_at"], r["status"]))
     return out
 
 

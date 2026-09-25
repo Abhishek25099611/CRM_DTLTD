@@ -43,8 +43,21 @@ quotation_defaults:
     Performance as per the agreed technical specification, subject to operation within the stated design
     parameters and site conditions.
 
+uploads:                          # customer documents, PO PDFs, quotation attachments
+  max_mb: 25
+  allowed_extensions: [pdf, doc, docx, xls, xlsx, ppt, pptx, png, jpg, jpeg, dwg, dxf, zip]
+  categories: [Offer received, Costing sheet, Technical document, Customer requirement, Drawing,
+               Reference document, Customer PO, Other]
+
+sla:                              # enquiry -> quotation turnaround (working hours)
+  quote_within_hours: 48
+  work_start_hour: 9
+  work_end_hour: 18
+  work_days: [0, 1, 2, 3, 4, 5]   # Mon=0 ... Sat=5 (Sunday excluded)
+
 paths:
   db: "./data/crm.db"
+  uploads: "./data/uploads"
   logs: "./data/logs"
   backup: "./data/backup"
   mis_file: "../MIS 2026-27.xlsx"   # one-time import source

@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from . import auth, db, print_quote
 from .config import LOGGER, SETTINGS
 from .schemas import (AssignRkzIn, ContactIn, CustomerIn, EnquiryIn, FollowupIn, ItemIn, QuotationIn, StatusIn)
-from .services import INDIAN_STATES, _check_quote_access, _geo_state, _q_totals, _quote_row, _scope, pincode_coords
+from .services import INDIAN_STATES, _check_quote_access, _geo_state, _q_totals, _quote_row, _scope, pincode_coords, sla_for
 
 router = APIRouter()
 
@@ -53,6 +53,18 @@ def summary(request: Request):
     monthly = db.rows(con.execute(f"""SELECT substr(date,1,7) m, COUNT(*) n FROM quotations q
                                      WHERE status!='superseded'{Q} GROUP BY m ORDER BY m""", a))
     recent = db.rows(con.execute("SELECT * FROM activity ORDER BY id DESC LIMIT 12"))
+    # 48-hour SLA: enquiry punch-in -> first quotation sent, in working hours
+    sla = {"in_time": 0, "late": 0, "open_breach": 0, "open_warn": 0, "limit": float(SETTINGS.sla.get("quote_within_hours", 48))}
+    for r in con.execute(f"""SELECT e.created_at, e.status,
+                             (SELECT MIN(q.sent_at) FROM quotations q WHERE q.enquiry_id=e.id AND q.sent_at!='') fs
+                             FROM enquiries e WHERE 1=1{E}""", a):
+        st = sla_for(r["created_at"], r["fs"], r["status"])["sla"]
+        if st == "ok": sla["in_time"] += 1
+        elif st == "late": sla["late"] += 1
+        elif st == "breach": sla["open_breach"] += 1
+        elif st == "warn": sla["open_warn"] += 1
+    quoted = sla["in_time"] + sla["late"]
+    sla["pct_in_time"] = round(100 * sla["in_time"] / quoted, 1) if quoted else None
     con.close()
     won_value = float(orders["v"] or 0)
     decided_n = int(orders["n"]) + lost
@@ -61,7 +73,7 @@ def summary(request: Request):
             "won_value": round(won_value, 2), "lost_value": round(lost_value, 2),
             "win_rate_count": round(100 * orders["n"] / decided_n, 1) if decided_n else 0.0,
             "win_rate_value": round(100 * won_value / (won_value + lost_value), 1) if (won_value + lost_value) else 0.0,
-            "monthly_quotes": monthly, "recent": recent, "today": today,
+            "monthly_quotes": monthly, "recent": recent, "today": today, "sla": sla,
             "scope_rkz": sc}
 
 
@@ -71,25 +83,27 @@ def geo(request: Request):
     con = db.connect()
     out: dict[str, dict[str, dict[str, float]]] = {"enquiries": {}, "offers": {}, "won": {}}
 
-    def add(metric: str, state_raw: str, value: float):
+    def add(metric: str, state_raw: str, value: float, cust: str = ""):
         st = _geo_state(state_raw) or "(No state set)"
-        d = out[metric].setdefault(st, {"n": 0, "value": 0.0})
+        d = out[metric].setdefault(st, {"n": 0, "value": 0.0, "customers": []})
         d["n"] += 1
         d["value"] += value or 0.0
+        if cust and cust not in d["customers"]:
+            d["customers"].append(cust)
 
     E = " AND e.salesperson=?" if sc else ""
     Q = " AND q.salesperson=?" if sc else ""
     a = (sc,) if sc else ()
-    for r in con.execute(f"""SELECT e.expected_value v, c.state FROM enquiries e JOIN customers c ON c.id=e.customer_id WHERE 1=1{E}""", a):
-        add("enquiries", r["state"], r["v"])
-    for r in con.execute(f"""SELECT q.id, c.state FROM quotations q JOIN customers c ON c.id=q.customer_id
+    for r in con.execute(f"""SELECT e.expected_value v, c.state, c.name FROM enquiries e JOIN customers c ON c.id=e.customer_id WHERE 1=1{E}""", a):
+        add("enquiries", r["state"], r["v"], r["name"])
+    for r in con.execute(f"""SELECT q.id, c.state, c.name FROM quotations q JOIN customers c ON c.id=q.customer_id
                             WHERE q.status!='superseded'{Q}""", a):
-        add("offers", r["state"], _q_totals(con, r["id"])["total"])
+        add("offers", r["state"], _q_totals(con, r["id"])["total"], r["name"])
     o_and = " AND (o.responsible=? OR q.salesperson=?)" if sc else ""
-    for r in con.execute(f"""SELECT o.value v, c.state FROM orders o JOIN customers c ON c.id=o.customer_id
+    for r in con.execute(f"""SELECT o.value v, c.state, c.name FROM orders o JOIN customers c ON c.id=o.customer_id
                              LEFT JOIN quotations q ON q.id=o.quotation_id WHERE 1=1{o_and}""",
                          (sc, sc) if sc else ()):
-        add("won", r["state"], r["v"])
+        add("won", r["state"], r["v"], r["name"])
     # ---- pincode-level points (exact locations) ----
     coords = pincode_coords()
     points: dict[str, dict[str, dict]] = {"enquiries": {}, "offers": {}, "won": {}}

@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse
 from . import db, print_quote
 from .config import SETTINGS
 from .schemas import ItemIn, QuotationIn, StatusIn
-from .services import _check_quote_access, _check_quote_edit, _is_admin, _q_totals, _quote_row, _scope
+from .services import _check_quote_access, _check_quote_edit, _is_admin, _q_totals, _quote_row, _scope, sla_for
 
 router = APIRouter()
 
@@ -51,6 +51,34 @@ def quotation(qid: int, request: Request):
     out["items"] = db.rows(con.execute("SELECT * FROM quotation_items WHERE quotation_id=? ORDER BY sr", (qid,)))
     # what the current user may do with it (mirrors _check_quote_edit)
     out["can_edit"] = _is_admin(request) or r["status"] == "draft"
+    con.close()
+    return out
+
+
+@router.get("/api/quotations/{qid}/detail")
+def quotation_detail(qid: int, request: Request):
+    """Everything about one quotation: customer, contact, items, sections, revisions, order, files, SLA."""
+    out = quotation(qid, request)
+    con = db.connect()
+    cust = con.execute("SELECT * FROM customers WHERE id=?", (out["customer_id"],)).fetchone()
+    ct = con.execute("SELECT * FROM contacts WHERE id=?", (out["contact_id"],)).fetchone() if out["contact_id"] else None
+    out["customer_detail"] = dict(cust) if cust else {}
+    out["contact_detail"] = dict(ct) if ct else None
+    out["revisions"] = [_quote_row(con, r) for r in db.rows(con.execute(
+        "SELECT * FROM quotations WHERE quote_no=? ORDER BY rev", (out["quote_no"],)))]
+    o = con.execute("""SELECT o.* FROM orders o WHERE o.quotation_id IN
+                       (SELECT id FROM quotations WHERE quote_no=?) ORDER BY o.id DESC LIMIT 1""", (out["quote_no"],)).fetchone()
+    out["order"] = dict(o) if o else None
+    out["documents"] = db.rows(con.execute(
+        """SELECT id, entity_type, entity_id, category, filename, size, uploaded_by, uploaded_at FROM documents
+           WHERE (entity_type='quotation' AND entity_id IN (SELECT id FROM quotations WHERE quote_no=?))
+              OR (entity_type='order' AND entity_id=?) ORDER BY id DESC""", (out["quote_no"], o["id"] if o else -1)))
+    out["followups"] = db.rows(con.execute(
+        "SELECT * FROM followups WHERE entity_type='quotation' AND entity_id=? ORDER BY done, due_date", (qid,)))
+    enq = con.execute("SELECT * FROM enquiries WHERE id=?", (out["enquiry_id"],)).fetchone() if out["enquiry_id"] else None
+    out["enquiry"] = dict(enq) if enq else None
+    if enq:
+        out["enquiry"].update(sla_for(enq["created_at"], out.get("sent_at") or "", enq["status"]))
     con.close()
     return out
 
@@ -172,8 +200,11 @@ def quote_status(qid: int, s: StatusIn, request: Request):
     _check_quote_access(request, r)
     if s.status == "lost" and not s.reason.strip():
         con.close(); raise HTTPException(422, {"error_type": "reason_required", "detail": "A lost reason is required"})
-    con.execute("UPDATE quotations SET status=?, lost_reason=?, updated_at=? WHERE id=?",
-                (s.status, s.reason if s.status == "lost" else r["lost_reason"], db.now(), qid))
+    # sent_at is stamped the first time the quotation goes out (Sent, or Won straight from Draft) — drives the 48-h SLA
+    stamp_sent = s.status in ("sent", "won") and not (r["sent_at"] or "")
+    con.execute("UPDATE quotations SET status=?, lost_reason=?, sent_at=?, updated_at=? WHERE id=?",
+                (s.status, s.reason if s.status == "lost" else r["lost_reason"],
+                 db.now() if stamp_sent else (r["sent_at"] or ""), db.now(), qid))
     order_id = None
     if s.status == "won":
         t = _q_totals(con, qid)

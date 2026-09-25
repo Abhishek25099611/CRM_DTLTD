@@ -54,6 +54,12 @@ CREATE TABLE IF NOT EXISTS activity(
   id INTEGER PRIMARY KEY, at TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER,
   action TEXT NOT NULL, detail TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS documents(
+  id INTEGER PRIMARY KEY, entity_type TEXT NOT NULL,   -- customer / enquiry / quotation / order
+  entity_id INTEGER NOT NULL, category TEXT DEFAULT '', filename TEXT NOT NULL,
+  stored_name TEXT NOT NULL, size INTEGER DEFAULT 0, mime TEXT DEFAULT '', note TEXT DEFAULT '',
+  uploaded_by TEXT DEFAULT '', uploaded_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS ix_documents_entity ON documents(entity_type, entity_id);
 """
 
 
@@ -79,6 +85,8 @@ MIGRATIONS = [
     ("quotations", "scope", "TEXT DEFAULT ''"),
     ("quotations", "warranty", "TEXT DEFAULT ''"),
     ("quotations", "guarantee", "TEXT DEFAULT ''"),
+    ("quotations", "sent_at", "TEXT DEFAULT ''"),        # first time the quotation was marked Sent (48-h SLA)
+    ("customers", "end_customer", "TEXT DEFAULT ''"),    # e.g. LIPL supplying JSW Dolvi
 ]
 
 

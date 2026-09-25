@@ -10,7 +10,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import auth, db, import_mis
 from .config import LOGGER, SETTINGS
-from . import routes_customers, routes_dashboard, routes_enquiries, routes_operations, routes_quotations
+from . import (routes_customers, routes_dashboard, routes_documents, routes_enquiries, routes_operations,
+               routes_quotations)
 
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -53,7 +54,7 @@ def _startup():
     db.backfill_states()
 
 
-for r in (routes_dashboard, routes_customers, routes_enquiries, routes_quotations, routes_operations):
+for r in (routes_dashboard, routes_customers, routes_enquiries, routes_quotations, routes_operations, routes_documents):
     app.include_router(r.router)
 app.include_router(auth.router)
 

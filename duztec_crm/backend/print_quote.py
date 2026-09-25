@@ -76,15 +76,18 @@ def render(q: dict, items: list[dict], customer: dict, contact: dict | None) -> 
         valid_till = (datetime.strptime(q["date"], "%Y-%m-%d") + timedelta(days=int(q.get("validity_days") or 30))).strftime("%d-%b-%Y")
     except ValueError:
         pass
+    # Per line: Net Price = qty x rate (before GST); Total Price = Net + GST. Discount applies in the totals block.
     rows = "".join(
         f"<tr><td class='num'>{i['sr']}</td><td>{escape(i['description'])}</td><td>{escape(i.get('hsn') or '')}</td>"
         f"<td class='num'>{i['qty']:g}</td><td>{escape(i.get('unit') or '')}</td><td class='num'>{inr(i['rate'])}</td>"
-        f"<td class='num'>{i.get('gst_pct') or 0:g}%</td><td class='num'>{inr(i['qty'] * i['rate'])}</td></tr>"
+        f"<td class='num'>{inr(i['qty'] * i['rate'])}</td><td class='num'>{i.get('gst_pct') or 0:g}%</td>"
+        f"<td class='num'>{inr(i['qty'] * i['rate'] * (1 + (i.get('gst_pct') or 0) / 100))}</td></tr>"
         for i in items)
-    gst_rows = (f"<tr><td colspan='7' class='num lbl'>CGST</td><td class='num'>{inr(gst_amt / 2)}</td></tr>"
-                f"<tr><td colspan='7' class='num lbl'>SGST</td><td class='num'>{inr(gst_amt / 2)}</td></tr>") if intra else \
-               f"<tr><td colspan='7' class='num lbl'>IGST</td><td class='num'>{inr(gst_amt)}</td></tr>"
-    disc_row = f"<tr><td colspan='7' class='num lbl'>Discount ({q.get('discount_pct'):g}%)</td><td class='num'>-{inr(disc)}</td></tr>" if disc else ""
+    gst_rows = (f"<tr><td colspan='8' class='num lbl'>CGST</td><td class='num'>{inr(gst_amt / 2)}</td></tr>"
+                f"<tr><td colspan='8' class='num lbl'>SGST</td><td class='num'>{inr(gst_amt / 2)}</td></tr>") if intra else \
+               f"<tr><td colspan='8' class='num lbl'>IGST</td><td class='num'>{inr(gst_amt)}</td></tr>"
+    disc_row = f"<tr><td colspan='8' class='num lbl'>Discount ({q.get('discount_pct'):g}%)</td><td class='num'>-{inr(disc)}</td></tr>" if disc else ""
+    end_cust = f"<br>End customer: {escape(customer['end_customer'])}" if customer.get("end_customer") else ""
     ref = f"{q['quote_no']}{('-' + q['rev']) if q.get('rev') else ''}"
     ct = ""
     if contact:
@@ -118,15 +121,15 @@ def render(q: dict, items: list[dict], customer: dict, contact: dict | None) -> 
 <div class="lh"><div><img src="{logo}" alt="{escape(SETTINGS.company_name)}"><small>{escape(c.get('address',''))}</small>
 <small>CIN: {escape(c.get('cin',''))} · GSTIN: {escape(c.get('gstin',''))}</small></div>
 <div class="qh"><b>QUOTATION</b>{qtype}<br>No: <b>{escape(ref)}</b><br>Date: {escape(q['date'])}<br>Valid till: {valid_till}</div></div>
-<p><b>To:</b> {escape(customer['name'])}<br>{escape(customer.get('address') or '')}{ct}</p>
+<p><b>To:</b> {escape(customer['name'])}<br>{escape(customer.get('address') or '')}{end_cust}{ct}</p>
 <p>Dear Sir/Madam,</p>
 {intro_html}
 <p>We are pleased to submit our offer as under:</p>
-<table><thead><tr><th class="num">#</th><th>Description</th><th>HSN</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate (₹)</th><th class="num">GST</th><th class="num">Amount (₹)</th></tr></thead>
+<table><thead><tr><th class="num">#</th><th>Description</th><th>HSN</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate (₹)</th><th class="num">Net Price (₹)</th><th class="num">GST</th><th class="num">Total Price (₹)</th></tr></thead>
 <tbody>{rows}
-<tr><td colspan='7' class='num lbl'>Sub Total</td><td class='num'>{inr(sub)}</td></tr>
+<tr><td colspan='8' class='num lbl'>Sub Total (net)</td><td class='num'>{inr(sub)}</td></tr>
 {disc_row}{gst_rows}
-<tr class="total"><td colspan='7' class='num'>Grand Total</td><td class='num'>₹ {inr(total)}</td></tr>
+<tr class="total"><td colspan='8' class='num'>Grand Total</td><td class='num'>₹ {inr(total)}</td></tr>
 </tbody></table>
 <p><i>{escape(amount_in_words(total))}</i></p>
 {sections}

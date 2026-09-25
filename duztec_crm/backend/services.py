@@ -1,7 +1,7 @@
 """Shared helpers: auth scoping, quotation totals, geo aliases."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException, Request
 
@@ -10,6 +10,50 @@ from functools import lru_cache
 from pathlib import Path
 
 from . import auth, db
+from .config import SETTINGS
+
+TS = "%Y-%m-%d %H:%M:%S"
+
+
+def parse_ts(s: str | None) -> datetime | None:
+    try:
+        return datetime.strptime(s, TS) if s else None
+    except ValueError:
+        return None
+
+
+def working_hours_between(start: datetime, end: datetime) -> float:
+    """Elapsed hours counting only configured working days/hours (default Mon–Sat 09:00–18:00)."""
+    cfg = SETTINGS.sla
+    ws, we = int(cfg.get("work_start_hour", 9)), int(cfg.get("work_end_hour", 18))
+    days = {int(d) for d in (cfg.get("work_days") or [0, 1, 2, 3, 4, 5])}
+    if end <= start:
+        return 0.0
+    total = 0.0
+    day = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    while day <= end:
+        if day.weekday() in days:
+            s, e = max(start, day.replace(hour=ws)), min(end, day.replace(hour=we))
+            if e > s:
+                total += (e - s).total_seconds() / 3600
+        day += timedelta(days=1)
+    return round(total, 1)
+
+
+def sla_for(created_at: str, first_sent_at: str, status: str) -> dict:
+    """Enquiry -> quotation turnaround against the configured limit (hours are working hours)."""
+    limit = float(SETTINGS.sla.get("quote_within_hours", 48))
+    start = parse_ts(created_at)
+    if not start:
+        return {"hours": None, "sla": "na", "limit": limit}
+    sent = parse_ts(first_sent_at)
+    if sent:
+        h = working_hours_between(start, sent)
+        return {"hours": h, "sla": "ok" if h <= limit else "late", "limit": limit}
+    if status in ("new", "qualified", "quoted"):        # clock still running
+        h = working_hours_between(start, datetime.now())
+        return {"hours": h, "sla": "breach" if h > limit else ("warn" if h > limit * 0.75 else "open"), "limit": limit}
+    return {"hours": None, "sla": "na", "limit": limit}   # closed without a sent quotation
 
 
 def _scope(request: Request) -> str | None:

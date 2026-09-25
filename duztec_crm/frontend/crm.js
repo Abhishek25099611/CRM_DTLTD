@@ -12,20 +12,23 @@
     return (neg ? '-' : '') + s; }
   const money = v => '₹ ' + inr(v);
   const short = v => (window.DzCharts ? window.DzCharts.short(v) : inr(v));
+  const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b > 1024 ? Math.round(b / 1024) + ' KB' : b + ' B';
 
   function flash(msg, ok = true) { const b = $(ok ? 'ok-box' : 'error-box'); b.textContent = msg; b.classList.remove('hidden'); setTimeout(() => b.classList.add('hidden'), ok ? 3500 : 8000); }
-  async function api(path, opts = {}) {
-    if (opts.body) { opts.method = opts.method || 'POST'; opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(opts.body); }
-    const r = await fetch(path, opts);
+  async function handle(r, path) {
     if (r.status === 401 && !path.startsWith('/api/auth/')) { showLogin(); throw new Error('Please log in.'); }
     if (!r.ok) { let d; try { d = (await r.json()).detail; } catch (e) { d = { detail: r.statusText }; } throw new Error(typeof d === 'string' ? d : d.detail); }
     return r.json();
   }
+  async function api(path, opts = {}) {
+    if (opts.body) { opts.method = opts.method || 'POST'; opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(opts.body); }
+    return handle(await fetch(path, opts), path);
+  }
+  async function apiForm(path, formData) { return handle(await fetch(path, { method: 'POST', body: formData }), path); }
 
   // ================= auth =================
   let ME = null;
   const isAdmin = () => !!(ME && ME.role === 'admin');
-  const canWrite = () => !!(ME && ME.role !== 'viewer');
   function showLogin() { $('login-overlay').classList.remove('hidden'); }
   function hideLogin() { $('login-overlay').classList.add('hidden'); }
   function loginMsg(m, err) { const el = $('login-msg'); el.textContent = m; el.classList.toggle('login-msg-err', !!err); }
@@ -68,6 +71,12 @@
                admin: 'won', user: 'sent', viewer: 'cold' };
   const pill = (st, label) => `<span class="status-pill ${SP[st] || 'open'}">${esc(label || st)}</span>`;
   const typePill = t => t ? `<span class="type-pill">${esc(t)}</span>` : '';
+  const slaBadge = e => {
+    if (!e || !e.sla || e.sla === 'na') return '';
+    const h = e.hours == null ? '' : e.hours + 'h';
+    const lbl = { ok: 'quoted in ' + h, late: 'quoted late · ' + h, open: h + ' of ' + e.limit + 'h', warn: h + ' · due soon', breach: h + ' · overdue' }[e.sla] || e.sla;
+    return `<span class="sla sla-${e.sla}" title="Working hours (Mon–Sat 9–18) from punch-in to the first quotation sent · limit ${e.limit}h">${esc(lbl)}</span>`;
+  };
 
   function openModal(title, html) { $('modal-title').textContent = title; $('modal-body').innerHTML = html; $('modal').classList.remove('hidden'); }
   function closeModal() { $('modal').classList.add('hidden'); }
@@ -75,10 +84,38 @@
   $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
 
   async function loadCustomers() { customersCache = await api('/api/customers'); return customersCache; }
-  const custOptions = sel => '<option value="">— select customer —</option>' + customersCache.map(c => `<option value="${c.id}" ${c.id == sel ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  const custOptions = sel => '<option value="">— select customer —</option>' + customersCache.map(c => `<option value="${c.id}" ${c.id == sel ? 'selected' : ''}>${esc(c.name)}${c.end_customer ? ' → ' + esc(c.end_customer) : ''}</option>`).join('');
   const stateOptions = sel => '<option value="">— select state —</option>' + (CFG.states || []).map(s => `<option ${s === sel ? 'selected' : ''}>${esc(s)}</option>`).join('');
   const typeOptions = sel => (CFG.enquiry_types || ['Normal']).map(t => `<option ${t === (sel || 'Normal') ? 'selected' : ''}>${esc(t)}</option>`).join('');
   const contactLabel = c => esc(c.name) + (c.designation ? ' — ' + esc(c.designation) : '') + (c.department ? ' (' + esc(c.department) + ')' : '');
+
+  // ================= DOCUMENTS (shared panel) =================
+  async function docsPanel(entityType, entityId, title, after) {
+    const [docs, meta] = await Promise.all([api(`/api/documents?entity_type=${entityType}&entity_id=${entityId}`), api('/api/documents/categories')]);
+    openModal('Documents — ' + title, `
+      <div class="table-wrap doc-list"><table><thead><tr><th>File</th><th>Category</th><th>Note</th><th class="num">Size</th><th>Uploaded</th><th></th></tr></thead>
+      <tbody>${docs.map(d => `<tr><td><a class="link" href="/api/documents/${d.id}/download">${esc(d.filename)}</a></td><td>${esc(d.category)}</td><td class="wrap">${esc(d.note)}</td>
+        <td class="num">${fmtSize(d.size)}</td><td>${esc(d.uploaded_at.slice(0, 16))}<div class="muted small">${esc(d.uploaded_by)}</div></td>
+        <td><button class="btn small danger" data-ddel="${d.id}" data-write>Delete</button></td></tr>`).join('') || '<tr class="empty"><td colspan="6">No documents yet</td></tr>'}</tbody></table></div>
+      <div class="modal-form" data-write style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+        <div class="full"><h3 style="margin:0">Upload a document</h3></div>
+        <div><label>Category</label><select id="d-cat">${meta.categories.map(c => `<option>${esc(c)}</option>`).join('')}</select></div>
+        <div><label>Note (optional)</label><input id="d-note" placeholder="e.g. costing sheet rev 2"></div>
+        <div class="full doc-drop">Allowed: ${meta.allowed_extensions.join(', ')} · max ${meta.max_mb} MB<input type="file" id="d-file"></div>
+        <div class="full"><button class="btn primary" id="d-up">Upload</button></div>
+      </div>`);
+    $('d-up').onclick = async () => {
+      const f = $('d-file').files[0]; if (!f) return flash('Choose a file first', false);
+      const fd = new FormData(); fd.append('entity_type', entityType); fd.append('entity_id', entityId); fd.append('category', $('d-cat').value); fd.append('note', $('d-note').value); fd.append('file', f);
+      try { await apiForm('/api/documents', fd); flash('Uploaded ' + f.name); docsPanel(entityType, entityId, title, after); if (after) after(); }
+      catch (e) { flash(e.message, false); }
+    };
+    document.querySelectorAll('[data-ddel]').forEach(b => b.onclick = async () => {
+      if (!confirm('Delete this document? This cannot be undone.')) return;
+      try { await api('/api/documents/' + b.dataset.ddel, { method: 'DELETE' }); flash('Document deleted'); docsPanel(entityType, entityId, title, after); if (after) after(); }
+      catch (e) { flash(e.message, false); }
+    });
+  }
 
   // ================= DASHBOARD =================
   async function renderDash() {
@@ -86,10 +123,12 @@
     const enq = Object.fromEntries(s.enquiries.map(r => [r.status, r.n]));
     const openEnq = (enq.new || 0) + (enq.qualified || 0);
     const qs = Object.fromEntries(s.quotes.map(r => [r.status, r.n]));
+    const sla = s.sla || {};
     $('view').innerHTML = `
       ${s.scope_rkz ? `<section class="card summary-strip">Showing only <b>RKZ ${esc(s.scope_rkz === '__UNASSIGNED__' ? '(none assigned — ask an admin)' : s.scope_rkz)}</b> data. Admins see all RKZ codes.</section>` : ''}
       <section class="kpis">
         <div class="kpi neutral"><div class="kpi-label">Open Enquiries</div><div class="kpi-value">${openEnq}</div><div class="kpi-sub">${s.enquiries_stale} idle &gt; 7 days</div></div>
+        <div class="kpi ${sla.open_breach ? 'critical' : 'success'}"><div class="kpi-label">Quoted within ${sla.limit || 48}h</div><div class="kpi-value">${sla.pct_in_time == null ? '—' : sla.pct_in_time + '%'}</div><div class="kpi-sub">${sla.in_time || 0} in time · ${sla.late || 0} late · <b>${sla.open_breach || 0}</b> open overdue</div></div>
         <div class="kpi overdue"><div class="kpi-label">Pipeline Value</div><div class="kpi-value">${money(s.pipeline_value)}</div><div class="kpi-sub">${(qs.sent || 0) + (qs.draft || 0)} live quotations</div></div>
         <div class="kpi success"><div class="kpi-label">Won Orders</div><div class="kpi-value">${money(s.won_value)}</div><div class="kpi-sub"><b>${s.orders.n}</b> orders booked</div></div>
         <div class="kpi critical"><div class="kpi-label">Lost</div><div class="kpi-value">${money(s.lost_value)}</div><div class="kpi-sub"><b>${s.lost}</b> lost · quoted value incl. GST</div></div>
@@ -102,7 +141,7 @@
         <section class="card"><h2>Recent Activity</h2><ul class="act-list">${s.recent.map(a => `<li>${esc(a.at.slice(5, 16))} · <b>${esc(a.action)}</b> ${esc(a.entity_type)} ${esc(a.detail)}</li>`).join('') || '<li>None yet</li>'}</ul></section>
       </div>
       <div class="grid-2" style="margin-bottom:16px">
-        <section class="card chart-card"><h2 style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">Region Heat Map
+        <section class="card chart-card"><h2 style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">Region Map
           <span style="display:flex;gap:6px;flex-wrap:wrap">
             <select id="map-metric" class="btn small" style="text-transform:none">
               <option value="enquiries">Enquiries</option><option value="offers" selected>Offers submitted</option><option value="won">Won orders</option></select>
@@ -115,7 +154,7 @@
         <section class="card"><h2>Top Regions <span class="muted small" id="map-title"></span></h2>
           <div class="table-wrap"><table><thead><tr><th>Region</th><th class="num">Count</th><th class="num">Value</th></tr></thead>
           <tbody id="map-rows"></tbody></table></div>
-          <div class="muted small" style="margin-top:6px">Locations come from the customer master (state and pincode; edit in the Customers tab).</div></section>
+          <div class="muted small" style="margin-top:6px">Click a bubble or a region row to see the customers behind it. Locations come from the customer master (state and pincode).</div></section>
       </div>
       <section class="card"><div class="filter-actions">
         <button class="btn primary" id="go-enq" data-write>+ New Enquiry</button>
@@ -144,15 +183,16 @@
     await loadCustomers();
     const list = await api('/api/enquiries');
     const cols = [['new', 'New'], ['qualified', 'Qualified'], ['quoted', 'Quoted'], ['won,lost,dropped', 'Closed']];
+    const breached = list.filter(e => e.sla === 'breach').length;
     $('view').innerHTML = `
       <section class="card filters"><div class="filter-actions">
         <button class="btn primary" id="btn-new-enq" data-write>+ New Enquiry</button>
         <a class="btn secondary" href="/api/export/enquiries.xlsx">Export Excel</a></div>
-        <div class="muted small">Click a card for actions. ${list.length} enquiries total.</div></section>
+        <div class="muted small">Click a card for actions. ${list.length} enquiries total${breached ? ` · <span class="sla sla-breach">${breached} past the 48-h quotation limit</span>` : ''}.</div></section>
       <div class="kanban">${cols.map(([k, t]) => { const items = list.filter(e => k.split(',').includes(e.status));
         return `<div class="kcol"><h3>${t}<span>${items.length}</span></h3>${items.map(e => `
           <div class="kcard type-${esc((e.priority || 'Normal').replace(/\s+/g, ''))}" data-id="${e.id}"><b>${esc(e.enq_no)} ${pill(e.status)} ${typePill(e.priority)}</b>
-          ${esc(e.customer)}<div class="muted">${esc(e.system)} · ${esc(e.date)}${e.expected_value ? ' · ' + money(e.expected_value) : ''}${e.next_followup ? ' · FU ' + esc(e.next_followup) : ''}</div></div>`).join('')}</div>`; }).join('')}</div>`;
+          ${esc(e.customer)}${e.end_customer ? ' <span class="muted">→ ' + esc(e.end_customer) + '</span>' : ''}<div class="muted">${esc(e.system)} · ${esc(e.date)}${e.expected_value ? ' · ' + money(e.expected_value) : ''}${e.next_followup ? ' · FU ' + esc(e.next_followup) : ''} ${slaBadge(e)}</div></div>`).join('')}</div>`; }).join('')}</div>`;
     $('btn-new-enq').onclick = newEnquiryForm;
     document.querySelectorAll('.kcard').forEach(el => el.onclick = () => enquiryActions(list.find(x => x.id == el.dataset.id)));
   }
@@ -169,6 +209,7 @@
       <div class="full"><label>Requirement</label><textarea id="f-req"></textarea></div>
       <div><label>Salesperson (RKZ)</label><input id="f-sp" placeholder="e.g. RV" value="${!isAdmin() ? esc(ME.rkz) : ''}" ${!isAdmin() ? 'readonly style="background:var(--gray)"' : ''}></div>
       <div><label>Enquiry type</label><select id="f-type">${typeOptions()}</select></div>
+      <div class="full muted small">The 48-working-hour quotation timer starts when you save this enquiry.</div>
       <div class="full"><button class="btn primary" id="f-save">Save Enquiry</button></div></div>`);
     $('f-cust').onchange = async () => { const cid = $('f-cust').value; if (!cid) return;
       const cs = await api('/api/contacts?customer_id=' + cid);
@@ -187,19 +228,21 @@
 
   function enquiryActions(e) {
     openModal(e.enq_no + ' — ' + e.customer, `
-      <p>${pill(e.status)} ${typePill(e.priority)} · ${esc(e.system)} · ${esc(e.date)} · ${esc(e.source)}${e.expected_value ? ' · ' + money(e.expected_value) : ''}${e.contact ? ' · ' + esc(e.contact) : ''}<br>
+      <p>${pill(e.status)} ${typePill(e.priority)} ${slaBadge(e)} · ${esc(e.system)} · ${esc(e.date)} · ${esc(e.source)}${e.expected_value ? ' · ' + money(e.expected_value) : ''}${e.contact ? ' · ' + esc(e.contact) : ''}${e.end_customer ? '<br>End customer: ' + esc(e.end_customer) : ''}<br>
       <span class="muted">${esc(e.requirement || '')}</span></p>
       <div class="filter-actions" style="flex-wrap:wrap">
         <button class="btn primary" id="a-quote" data-write>Create Quotation</button>
         ${isAdmin() ? '<button class="btn secondary" id="a-rkz" data-write>Assign RKZ (' + esc(e.salesperson || 'none') + ')</button>' : ''}
         <button class="btn secondary" id="a-qualify" data-write>Mark Qualified</button>
         <button class="btn secondary" id="a-fu" data-write>Add Follow-up</button>
+        <button class="btn secondary" id="a-docs">Files</button>
         <button class="btn danger" id="a-drop" data-write>Drop</button>
       </div>`);
     $('a-quote').onclick = () => { closeModal(); switchView('quotes'); setTimeout(() => quoteForm(e), 150); };
     $('a-qualify').onclick = async () => { await api(`/api/enquiries/${e.id}/status`, { body: { status: 'qualified' } }); closeModal(); renderEnquiries(); };
     $('a-drop').onclick = async () => { await api(`/api/enquiries/${e.id}/status`, { body: { status: 'dropped' } }); closeModal(); renderEnquiries(); };
     $('a-fu').onclick = () => followupForm('enquiry', e.id, e.enq_no);
+    $('a-docs').onclick = () => docsPanel('enquiry', e.id, e.enq_no);
     const ar = $('a-rkz'); if (ar) ar.onclick = () => { closeModal(); assignRkz('enquiry', [e.id], e.salesperson, renderEnquiries); };
   }
 
@@ -216,11 +259,11 @@
           <button class="btn" id="btn-q-search">Search</button>
           <button class="btn primary" id="btn-new-q" data-write>+ New Quotation</button>
           <a class="btn secondary" href="/api/export/quotations.xlsx">Export Excel</a></div>
-        <div class="muted small" style="flex-basis:100%">${list.length} quotations (excluding superseded revisions).${!isAdmin() ? ' You can edit your own Drafts; once Sent, only an admin can edit or revise.' : ''}</div></section>
+        <div class="muted small" style="flex-basis:100%">${list.length} quotations (excluding superseded revisions). Click a quotation number for full details.${!isAdmin() ? ' You can edit your own Drafts; once Sent, only an admin can edit or revise.' : ''}</div></section>
       <section class="card"><div class="table-wrap"><table><thead>
         <tr><th>No.</th><th>Date</th><th>Customer</th><th>Type</th><th class="num">Items</th><th class="num">Total (incl. GST)</th><th>Status</th><th>RKZ</th><th>Actions</th></tr></thead>
         <tbody>${list.map(q => `<tr>
-          <td><b>${esc(q.quote_no)}${q.rev ? '-' + q.rev : ''}</b></td><td>${esc(q.date)}</td><td class="wrap">${esc(q.customer)}${q.contact ? `<div class="muted small">${esc(q.contact)}</div>` : ''}</td>
+          <td><button class="link-btn" data-detail="${q.id}">${esc(q.quote_no)}${q.rev ? '-' + q.rev : ''}</button></td><td>${esc(q.date)}</td><td class="wrap">${esc(q.customer)}${q.contact ? `<div class="muted small">${esc(q.contact)}</div>` : ''}</td>
           <td>${typePill(q.type)}</td>
           <td class="num">${q.item_count}</td><td class="num">${inr(q.total)}</td><td>${pill(q.status)}${q.lost_reason ? `<div class="muted small">${esc(q.lost_reason)}</div>` : ''}</td>
           <td>${esc(q.salesperson || '')}${isAdmin() ? ` <button class="btn small" data-qrkz="${q.id}" data-cur="${esc(q.salesperson || '')}" title="Assign RKZ" data-write>✎</button>` : ''}</td>
@@ -231,17 +274,55 @@
             ${['sent', 'draft', 'cold'].includes(q.status) ? `<button class="btn small secondary" data-won="${q.id}" data-write>Won</button><button class="btn small danger" data-lost="${q.id}" data-write>Lost</button>` : ''}
             ${isAdmin() ? `<button class="btn small" data-rev="${q.id}" data-write>Revise</button>` : ''}
             <button class="btn small" data-fu="${q.id}" data-no="${esc(q.quote_no)}" data-write>FU</button>
+            <button class="btn small" data-qdocs="${q.id}" data-no="${esc(q.quote_no)}">Files</button>
           </td></tr>`).join('') || '<tr class="empty"><td colspan="9">No quotations match</td></tr>'}</tbody></table></div></section>`;
     $('btn-q-search').onclick = () => { quoteSearch = $('q-search').value.trim(); renderQuotes(); };
     $('q-search').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-q-search').click(); });
     $('btn-new-q').onclick = () => quoteForm(null);
+    document.querySelectorAll('[data-detail]').forEach(b => b.onclick = () => quoteDetail(+b.dataset.detail));
     document.querySelectorAll('[data-edit]').forEach(b => b.onclick = async () => { try { quoteForm(null, await api('/api/quotations/' + b.dataset.edit)); } catch (e) { flash(e.message, false); } });
-    document.querySelectorAll('[data-sent]').forEach(b => b.onclick = async () => { try { await api(`/api/quotations/${b.dataset.sent}/status`, { body: { status: 'sent' } }); renderQuotes(); } catch (e) { flash(e.message, false); } });
+    document.querySelectorAll('[data-sent]').forEach(b => b.onclick = async () => { try { await api(`/api/quotations/${b.dataset.sent}/status`, { body: { status: 'sent' } }); flash('Marked Sent — 48-h timer stopped for its enquiry'); renderQuotes(); } catch (e) { flash(e.message, false); } });
     document.querySelectorAll('[data-won]').forEach(b => b.onclick = () => wonForm(b.dataset.won));
     document.querySelectorAll('[data-lost]').forEach(b => b.onclick = () => lostForm(b.dataset.lost));
     document.querySelectorAll('[data-rev]').forEach(b => b.onclick = async () => { try { const r = await api(`/api/quotations/${b.dataset.rev}/revise`, { method: 'POST' }); flash('Revision ' + r.rev + ' created (old copy kept)'); renderQuotes(); } catch (e) { flash(e.message, false); } });
     document.querySelectorAll('[data-fu]').forEach(b => b.onclick = () => followupForm('quotation', +b.dataset.fu, b.dataset.no));
+    document.querySelectorAll('[data-qdocs]').forEach(b => b.onclick = () => docsPanel('quotation', +b.dataset.qdocs, b.dataset.no));
     document.querySelectorAll('[data-qrkz]').forEach(b => b.onclick = () => assignRkz('quotation', [+b.dataset.qrkz], b.dataset.cur, renderQuotes));
+  }
+
+  async function quoteDetail(qid) {
+    let d; try { d = await api(`/api/quotations/${qid}/detail`); } catch (e) { return flash(e.message, false); }
+    const c = d.customer_detail || {}, ct = d.contact_detail, o = d.order, e = d.enquiry;
+    const row = (l, v) => `<div><span class="lbl">${l}</span><span class="val">${v || '—'}</span></div>`;
+    const net = i => (i.qty || 0) * (i.rate || 0);
+    openModal(`${d.quote_no}${d.rev ? '-' + d.rev : ''} — ${d.customer}`, `
+      <div class="filter-actions" style="margin-bottom:10px;flex-wrap:wrap">${pill(d.status)} ${typePill(d.type)}
+        <a class="btn small secondary" target="_blank" href="/api/quotations/${d.id}/print">Print</a>
+        <button class="btn small" id="qd-docs">Files (${d.documents.length})</button>
+        ${d.can_edit && ['draft', 'sent'].includes(d.status) ? '<button class="btn small" id="qd-edit" data-write>Edit</button>' : ''}</div>
+      <div class="detail-grid">
+        ${row('Customer', esc(c.name))}${row('End customer', esc(c.end_customer))}
+        ${row('GSTIN', esc(c.gstin))}${row('State · Pincode', esc((c.state || '') + (c.pincode ? ' · ' + c.pincode : '')))}
+        ${row('Contact person', ct ? contactLabel(ct) + (ct.phone ? ' · ' + esc(ct.phone) : '') + (ct.email ? ' · ' + esc(ct.email) : '') : '')}
+        ${row('Address', esc(c.address))}
+        ${row('Date · Validity', esc(d.date) + ' · ' + d.validity_days + ' days')}${row('RKZ', esc(d.salesperson))}
+        ${row('GST mode', d.gst_mode === 'inter' ? 'IGST (other state)' : 'CGST + SGST')}${row('Sent on', esc(d.sent_at))}
+        ${row('Enquiry', e ? esc(e.enq_no) + ' · ' + esc(e.date) + ' ' + slaBadge(e) : '')}${row('Discount', d.discount_pct ? d.discount_pct + '%' : '')}
+      </div>
+      <div class="detail-section"><h3>Products &amp; pricing</h3>
+        <div class="table-wrap"><table><thead><tr><th>#</th><th>Description</th><th>HSN</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate</th><th class="num">Net price</th><th class="num">GST</th><th class="num">Total price</th></tr></thead>
+        <tbody>${d.items.map(i => `<tr><td>${i.sr}</td><td class="wrap">${esc(i.description)}</td><td>${esc(i.hsn)}</td><td class="num">${i.qty}</td><td>${esc(i.unit)}</td><td class="num">${inr(i.rate)}</td><td class="num">${inr(net(i))}</td><td class="num">${i.gst_pct}%</td><td class="num">${inr(net(i) * (1 + (i.gst_pct || 0) / 100))}</td></tr>`).join('')}</tbody></table></div>
+        <div class="totals-box"><span>Subtotal (net): ${money(d.subtotal)}</span>${d.discount_pct ? `<span>Discount ${d.discount_pct}%</span>` : ''}<span>GST: ${money(d.gst)}</span><b>Grand total: ${money(d.total)}</b></div></div>
+      <div class="detail-section"><div class="detail-grid">
+        ${row('Payment terms', esc(d.payment_terms))}${row('Delivery terms', esc(d.delivery_terms))}
+        ${row('Scope of supply', esc(d.scope))}${row('Warranty', esc(d.warranty))}
+        ${row('Guarantee', esc(d.guarantee))}${row('Notes', esc(d.notes))}</div></div>
+      <div class="detail-section"><h3>Order status</h3>${o ? `${pill('won')} SO <b>${esc(o.so_no || '—')}</b> · Customer PO ${esc(o.po_no || '—')} (${esc(o.po_date)}) · ${money(o.value)}${o.delivery_date ? ' · delivery ' + esc(o.delivery_date) : ''}` : d.status === 'lost' ? `${pill('lost')} ${esc(d.lost_reason)}` : '<span class="muted">No order yet</span>'}</div>
+      <div class="detail-section"><h3>Revisions</h3>${d.revisions.map(r => `<div>${esc(r.quote_no)}${r.rev ? '-' + r.rev : ''} ${pill(r.status)} ${esc(r.date)} · ${money(r.total)}</div>`).join('')}</div>
+      <div class="detail-section"><h3>Attachments (${d.documents.length})</h3>${d.documents.map(x => `<div><a class="link" href="/api/documents/${x.id}/download">${esc(x.filename)}</a> <span class="muted small">${esc(x.category)} · on ${esc(x.entity_type)} · ${esc(x.uploaded_at.slice(0, 10))}</span></div>`).join('') || '<span class="muted">None — use Files to attach the customer PO, drawings or offers received.</span>'}</div>
+      ${d.followups.length ? `<div class="detail-section"><h3>Follow-ups</h3>${d.followups.map(f => `<div>${esc(f.due_date)} · ${esc(f.channel)} · ${esc(f.note)} ${f.done ? '<span class="muted">(done)</span>' : ''}</div>`).join('')}</div>` : ''}`);
+    $('qd-docs').onclick = () => docsPanel('quotation', d.id, d.quote_no, () => {});
+    const ed = $('qd-edit'); if (ed) ed.onclick = () => quoteForm(null, d);
   }
 
   function itemRow(it = {}) {
@@ -253,6 +334,7 @@
       <td style="width:80px"><input class="i-unit" value="${esc(it.unit || 'Nos.')}"></td>
       <td class="num" style="width:120px"><input type="number" class="i-rate" value="${it.rate ?? 0}" min="0" step="any"></td>
       <td class="num" style="width:80px"><input type="number" class="i-gst" value="${it.gst_pct ?? d.gst_pct ?? 18}" min="0" step="any"></td>
+      <td class="num i-net" style="width:110px"></td>
       <td style="width:40px"><button class="btn small danger i-del">×</button></td></tr>`;
   }
 
@@ -273,7 +355,7 @@
         ${sec('q-intro', 'Introduction (printed before the price table)', q.introduction || d.introduction)}
       </div>
       <div class="items-editor"><h3 style="margin:6px 0">Line items</h3>
-        <div class="table-wrap"><table><thead><tr><th>Description</th><th>HSN</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate ₹</th><th class="num">GST %</th><th></th></tr></thead>
+        <div class="table-wrap"><table><thead><tr><th>Description</th><th>HSN</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate ₹</th><th class="num">GST %</th><th class="num">Net price ₹</th><th></th></tr></thead>
         <tbody id="q-items">${(q.items && q.items.length ? q.items : [enq ? { description: enq.system, qty: 1, rate: enq.expected_value || 0 } : {}]).map(itemRow).join('')}</tbody></table></div>
         <button class="btn small secondary" id="q-add">+ Add line</button>
         <div class="totals-box" id="q-totals"></div>
@@ -292,9 +374,9 @@
       $('q-contact').innerHTML = '<option value="">—</option>' + cs.map(c => `<option value="${c.id}" ${c.id == (q.contact_id || (enq && enq.contact_id)) ? 'selected' : ''}>${contactLabel(c)}</option>`).join(''); };
     $('q-cust').onchange = loadContacts; loadContacts();
     const recalc = () => { let sub = 0, gst = 0; const disc = +$('q-disc').value || 0;
-      document.querySelectorAll('#q-items tr').forEach(tr => { const a = (+tr.querySelector('.i-qty').value || 0) * (+tr.querySelector('.i-rate').value || 0); sub += a; gst += a * (1 - disc / 100) * ((+tr.querySelector('.i-gst').value || 0) / 100); });
+      document.querySelectorAll('#q-items tr').forEach(tr => { const a = (+tr.querySelector('.i-qty').value || 0) * (+tr.querySelector('.i-rate').value || 0); tr.querySelector('.i-net').textContent = inr(a); sub += a; gst += a * (1 - disc / 100) * ((+tr.querySelector('.i-gst').value || 0) / 100); });
       const tot = sub * (1 - disc / 100) + gst;
-      $('q-totals').innerHTML = `<span>Subtotal: ${money(sub)}</span><span>GST: ${money(gst)}</span><b>Total: ${money(tot)}</b>`; };
+      $('q-totals').innerHTML = `<span>Subtotal (net): ${money(sub)}</span>${disc ? `<span>Discount: −${money(sub * disc / 100)}</span>` : ''}<span>GST: ${money(gst)}</span><b>Total: ${money(tot)}</b>`; };
     $('modal-body').addEventListener('input', recalc);
     $('modal-body').addEventListener('click', e => { if (e.target.classList.contains('i-del')) { e.target.closest('tr').remove(); recalc(); } });
     $('q-add').onclick = () => { $('q-items').insertAdjacentHTML('beforeend', itemRow()); recalc(); };
@@ -327,11 +409,17 @@
       <div><label>PO Date</label><input type="date" id="w-date" value="${today()}"></div>
       <div><label>Sales Order (SO) No.</label><input id="w-so" placeholder="e.g. S00390"></div>
       <div><label>Order value ₹ (blank = quote total)</label><input type="number" id="w-val" min="0" step="any"></div>
+      <div class="full doc-drop">Attach the customer's PO (PDF, optional — can be added later under Files)<input type="file" id="w-pdf" accept=".pdf,.jpg,.jpeg,.png"></div>
       <div class="full muted small">Payment terms and the product are copied from the quotation onto the order. You can edit them later in the Orders tab.</div>
       <div class="full"><button class="btn primary" id="w-save">Confirm Won → create Order</button></div></div>`);
     $('w-save').onclick = async () => { try {
-      await api(`/api/quotations/${qid}/status`, { body: { status: 'won', po_no: $('w-po').value, so_no: $('w-so').value, po_date: $('w-date').value, value: +$('w-val').value || 0 } });
-      closeModal(); flash('Marked Won — order created'); renderQuotes();
+      const r = await api(`/api/quotations/${qid}/status`, { body: { status: 'won', po_no: $('w-po').value, so_no: $('w-so').value, po_date: $('w-date').value, value: +$('w-val').value || 0 } });
+      const f = $('w-pdf').files[0];
+      if (f && r.order_id) {
+        const fd = new FormData(); fd.append('entity_type', 'order'); fd.append('entity_id', r.order_id); fd.append('category', 'Customer PO'); fd.append('note', 'PO ' + $('w-po').value); fd.append('file', f);
+        try { await apiForm('/api/documents', fd); } catch (e) { flash('Order created, but the PO file was not saved: ' + e.message, false); }
+      }
+      closeModal(); flash('Marked Won — order created' + (f ? ' with PO attached' : '')); renderQuotes();
     } catch (e) { flash(e.message, false); } };
   }
   function lostForm(qid) {
@@ -351,12 +439,14 @@
       <div class="filter-actions" style="margin-bottom:10px"><a class="btn secondary" href="/api/export/orders.xlsx">Export Excel</a></div>
       <div class="table-wrap"><table><thead><tr><th>SO No.</th><th>PO No.</th><th>PO Date</th><th>Customer</th><th>Product</th><th>Quote</th><th>RKZ</th><th class="num">Value</th><th>Payment terms</th><th></th></tr></thead>
       <tbody>${list.map(o => `<tr><td><b>${esc(o.so_no || '—')}</b></td><td class="wrap">${esc(o.po_no)}</td><td>${esc(o.po_date)}</td><td class="wrap">${esc(o.customer)}</td>
-        <td class="wrap">${esc(o.system || '')}</td><td>${esc(o.quote_no || '')}${o.quote_rev ? '-' + esc(o.quote_rev) : ''}</td>
+        <td class="wrap">${esc(o.system || '')}</td><td>${o.quote_no ? `<button class="link-btn" data-odetail="${o.quotation_id}">${esc(o.quote_no)}${o.quote_rev ? '-' + esc(o.quote_rev) : ''}</button>` : ''}</td>
         <td>${esc(o.responsible || '—')}${isAdmin() ? ` <button class="btn small" data-orkz="${o.id}" data-cur="${esc(o.responsible || '')}" title="Assign RKZ" data-write>✎</button>` : ''}</td>
         <td class="num">${inr(o.value)}</td><td class="wrap">${esc(o.payment_terms)}</td>
-        <td><button class="btn small" data-oedit="${o.id}" title="Edit SO / PO / terms" data-write>Edit</button></td></tr>`).join('') || '<tr class="empty"><td colspan="10">No orders</td></tr>'}</tbody></table></div></section>`;
+        <td class="actions-cell"><button class="btn small" data-oedit="${o.id}" title="Edit SO / PO / terms" data-write>Edit</button><button class="btn small" data-odocs="${o.id}" data-no="${esc(o.so_no || o.po_no || o.customer)}">Files</button></td></tr>`).join('') || '<tr class="empty"><td colspan="10">No orders</td></tr>'}</tbody></table></div></section>`;
     document.querySelectorAll('[data-orkz]').forEach(b => b.onclick = () => assignRkz('order', [+b.dataset.orkz], b.dataset.cur, renderOrders));
     document.querySelectorAll('[data-oedit]').forEach(b => b.onclick = () => orderForm(list.find(x => x.id == b.dataset.oedit)));
+    document.querySelectorAll('[data-odocs]').forEach(b => b.onclick = () => docsPanel('order', +b.dataset.odocs, 'Order ' + b.dataset.no));
+    document.querySelectorAll('[data-odetail]').forEach(b => b.onclick = () => quoteDetail(+b.dataset.odetail));
   }
 
   function orderForm(o) {
@@ -376,10 +466,25 @@
     } catch (e) { flash(e.message, false); } };
   }
 
+  // ================= LOST =================
+  async function renderLost() {
+    const list = await api('/api/lost');
+    const total = list.reduce((a, r) => a + (r.value || 0), 0);
+    $('view').innerHTML = `<section class="card"><h2>Lost Deals <span class="muted small">(${list.length} · ${money(total)} quoted value incl. GST)</span></h2>
+      <div class="filter-actions" style="margin-bottom:10px"><a class="btn secondary" href="/api/export/lost.xlsx">Export Excel</a></div>
+      <div class="table-wrap"><table><thead><tr><th>Quote</th><th>Quoted</th><th>Lost on</th><th>Customer</th><th>End customer</th><th>Product</th><th>Type</th><th>RKZ</th><th class="num">Value</th><th>Reason</th></tr></thead>
+      <tbody>${list.map(r => `<tr class="row-critical"><td><button class="link-btn" data-detail="${r.id}">${esc(r.quote_no)}${r.rev ? '-' + esc(r.rev) : ''}</button>${r.enq_no ? `<div class="muted small">${esc(r.enq_no)}</div>` : ''}</td>
+        <td>${esc(r.date)}</td><td>${esc((r.lost_on || '').slice(0, 10))}</td><td class="wrap">${esc(r.customer)}</td><td class="wrap">${esc(r.end_customer || '')}</td>
+        <td class="wrap">${esc(r.product || '')}</td><td>${typePill(r.type)}</td><td>${esc(r.salesperson || '—')}</td><td class="num">${inr(r.value)}</td><td class="wrap">${esc(r.lost_reason)}</td></tr>`).join('') || '<tr class="empty"><td colspan="10">No lost deals recorded</td></tr>'}</tbody></table></div>
+      <div class="muted small" style="margin-top:8px">A lost deal is a quotation marked Lost (with its reason); it has no PO or SO. Click the quotation number for full details and revisions.</div></section>`;
+    document.querySelectorAll('[data-detail]').forEach(b => b.onclick = () => quoteDetail(+b.dataset.detail));
+  }
+
   // ================= CUSTOMERS & CONTACTS =================
   function customerForm(after) {
     openModal('New Customer', `<div class="modal-form">
       <div class="full"><label>Name</label><input id="c-name"></div>
+      <div class="full"><label>End customer <span class="muted small">(the plant / end user when this customer is a trader or EPC — e.g. "JSW Dolvi" for LIPL)</span></label><input id="c-endcust"></div>
       <div><label>GSTIN</label><input id="c-gstin"></div>
       <div><label>State</label><select id="c-state">${stateOptions('')}</select></div>
       <div><label>Pincode</label><input id="c-pin" maxlength="6" inputmode="numeric" placeholder="e.g. 400604"></div>
@@ -393,44 +498,51 @@
       <div class="full"><label>Email</label><input id="c-cemail" type="email"></div>
       <div class="full"><button class="btn primary" id="c-save">Save Customer</button></div></div>`);
     $('c-save').onclick = async () => { try {
-      const r = await api('/api/customers', { body: { name: $('c-name').value, gstin: $('c-gstin').value, state: $('c-state').value, pincode: $('c-pin').value, address: $('c-addr').value, segment: $('c-seg').value } });
+      const r = await api('/api/customers', { body: { name: $('c-name').value, end_customer: $('c-endcust').value, gstin: $('c-gstin').value, state: $('c-state').value, pincode: $('c-pin').value, address: $('c-addr').value, segment: $('c-seg').value } });
       if ($('c-contact').value.trim()) await api('/api/contacts', { body: { customer_id: r.id, name: $('c-contact').value, phone: $('c-phone').value, email: $('c-cemail').value, designation: $('c-cdesig').value, department: $('c-cdept').value } });
       await loadCustomers(); closeModal(); flash('Customer saved');
       if (after) after(); else if (view === 'customers') renderCustomers();
     } catch (e) { flash(e.message, false); } };
   }
 
+  const custBody = (c, patch) => ({ name: c.name, gstin: c.gstin, address: c.address, state: c.state || '', pincode: c.pincode || '', segment: c.segment, end_customer: c.end_customer || '', ...patch });
+
   async function renderCustomers() {
     const list = await loadCustomers();
     $('view').innerHTML = `<section class="card filters"><div class="filter-actions"><button class="btn primary" id="btn-new-c" data-write>+ New Customer</button>
       <a class="btn secondary" href="/api/export/customers.xlsx">Export customers</a><a class="btn secondary" href="/api/export/contacts.xlsx">Export contacts</a></div>
       <div class="muted small">${list.length} customers</div></section>
-      <section class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Contacts</th><th>GSTIN</th><th>State</th><th>Pincode</th><th>Segment</th><th class="num">Enquiries</th><th class="num">Quotes</th><th class="num">Order value</th></tr></thead>
+      <section class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>End customer</th><th>Contacts</th><th>Files</th><th>GSTIN</th><th>State</th><th>Pincode</th><th>Segment</th><th class="num">Enquiries</th><th class="num">Quotes</th><th class="num">Order value</th></tr></thead>
       <tbody>${list.map(c => `<tr><td class="wrap"><b>${esc(c.name)}</b></td>
+        <td class="wrap">${esc(c.end_customer || '—')} <button class="btn small" data-endc="${c.id}" title="Edit end customer" data-write>✎</button></td>
         <td><button class="btn small secondary" data-contacts="${c.id}">${c.contact_count || 0} contact${c.contact_count === 1 ? '' : 's'}</button></td>
+        <td><button class="btn small secondary" data-cdocs="${c.id}">${c.document_count || 0} file${c.document_count === 1 ? '' : 's'}</button></td>
         <td>${esc(c.gstin)}</td><td>${esc(c.state)} <button class="btn small" data-state="${c.id}" title="Edit state" data-write>✎</button></td>
         <td>${esc(c.pincode || '—')} <button class="btn small" data-pin="${c.id}" title="Edit pincode" data-write>✎</button></td><td>${esc(c.segment)}</td>
         <td class="num">${c.enquiries}</td><td class="num">${c.quotes}</td><td class="num">${inr(c.order_value)}</td></tr>`).join('')}</tbody></table></div></section>`;
     $('btn-new-c').onclick = () => customerForm();
     document.querySelectorAll('[data-contacts]').forEach(b => b.onclick = () => contactsPanel(list.find(x => x.id == b.dataset.contacts)));
+    document.querySelectorAll('[data-cdocs]').forEach(b => b.onclick = () => { const c = list.find(x => x.id == b.dataset.cdocs); docsPanel('customer', c.id, c.name, () => loadCustomers().then(renderCustomers)); });
     document.querySelectorAll('[data-state]').forEach(b => b.onclick = () => {
       const c = list.find(x => x.id == b.dataset.state);
       openModal('State — ' + c.name, `<div class="modal-form"><div class="full"><label>State</label><select id="st-sel">${stateOptions(c.state || '')}</select></div>
         <div class="full"><button class="btn primary" id="st-save">Save</button></div></div>`);
-      $('st-save').onclick = async () => { try {
-        await api('/api/customers/' + c.id, { method: 'PUT', body: { name: c.name, gstin: c.gstin, address: c.address, state: $('st-sel').value, pincode: c.pincode || '', segment: c.segment } });
-        closeModal(); flash('State updated'); renderCustomers();
-      } catch (e) { flash(e.message, false); } };
+      $('st-save').onclick = async () => { try { await api('/api/customers/' + c.id, { method: 'PUT', body: custBody(c, { state: $('st-sel').value }) }); closeModal(); flash('State updated'); renderCustomers(); } catch (e) { flash(e.message, false); } };
+    });
+    document.querySelectorAll('[data-endc]').forEach(b => b.onclick = () => {
+      const c = list.find(x => x.id == b.dataset.endc);
+      openModal('End customer — ' + c.name, `<div class="modal-form"><div class="full"><label>End customer / plant</label><input id="ec-val" value="${esc(c.end_customer || '')}" placeholder="e.g. JSW Dolvi"></div>
+        <div class="full muted small">Shown on enquiries, quotations (printed under the customer name), orders and the Lost tab.</div>
+        <div class="full"><button class="btn primary" id="ec-save">Save</button></div></div>`);
+      $('ec-save').onclick = async () => { try { await api('/api/customers/' + c.id, { method: 'PUT', body: custBody(c, { end_customer: $('ec-val').value }) }); closeModal(); flash('End customer updated'); renderCustomers(); } catch (e) { flash(e.message, false); } };
     });
     document.querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => {
       const c = list.find(x => x.id == b.dataset.pin);
       const pin = prompt('Pincode for ' + c.name + ' (6 digits, blank to clear):', c.pincode || '');
       if (pin === null) return;
       if (pin.trim() && !/^[1-8]\d{5}$/.test(pin.trim())) return flash('Enter a valid 6-digit Indian pincode', false);
-      try {
-        await api('/api/customers/' + c.id, { method: 'PUT', body: { name: c.name, gstin: c.gstin, address: c.address, state: c.state || '', pincode: pin.trim(), segment: c.segment } });
-        flash('Pincode updated'); renderCustomers();
-      } catch (e) { flash(e.message, false); }
+      try { await api('/api/customers/' + c.id, { method: 'PUT', body: custBody(c, { pincode: pin.trim() }) }); flash('Pincode updated'); renderCustomers(); }
+      catch (e) { flash(e.message, false); }
     });
   }
 
@@ -490,7 +602,7 @@
     document.querySelectorAll('[data-done]').forEach(b => b.onclick = async () => { try { await api(`/api/followups/${b.dataset.done}/done`, { body: { status: 'done', reason: '' } }); renderFollowups(); } catch (e) { flash(e.message, false); } });
   }
 
-  // ================= region heat map =================
+  // ================= region map =================
   let GEO = null, MAPJ = null;
   async function initMap() {
     try {
@@ -500,11 +612,16 @@
       drawMap();
     } catch (e) { $('map-box').textContent = 'Map unavailable: ' + e.message; }
   }
-  function heatColor(t) { // 0..1 -> light tint .. deep Duztec blue
+  function heatColor(t) { // 0..1 -> light tint .. deep Duztec blue (stronger ramp)
     if (t <= 0) return '#e7ecea';
-    const a = [219, 230, 242], b = [23, 74, 130];
-    const c = a.map((v, i) => Math.round(v + (b[i] - v) * Math.sqrt(t)));
+    const a = [205, 220, 238], b = [16, 58, 108];
+    const c = a.map((v, i) => Math.round(v + (b[i] - v) * Math.pow(t, 0.6)));
     return `rgb(${c[0]},${c[1]},${c[2]})`;
+  }
+  function regionModal(title, customers, n, value, label) {
+    openModal(title, `<p>${n} ${esc(label)} · ${money(value)}</p><div class="table-wrap"><table><thead><tr><th>Customer</th></tr></thead>
+      <tbody>${(customers || []).map(c => `<tr><td>${esc(c)}</td></tr>`).join('') || '<tr class="empty"><td>No customer names available</td></tr>'}</tbody></table></div>
+      <div class="muted small" style="margin-top:6px">Use the Quotations / Orders tabs with the search box to open the individual records.</div>`);
   }
   function drawMap() {
     if (!MAPJ || !GEO) return;
@@ -521,33 +638,36 @@
     const sc = W / (maxX - minX);
     const viewMode = $('map-view') ? $('map-view').value : 'heat';
     const label = $('map-metric').selectedOptions[0].text.toLowerCase();
-    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H.toFixed(0)}" width="100%" role="img" aria-label="India heat map">`;
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H.toFixed(0)}" width="100%" role="img" aria-label="India map">`;
     MAPJ.states.forEach(st => {
       const d = data[st.n] || { n: 0, value: 0 };
       const t = d[mode] / max;
       const path = st.p.map(r => 'M' + r.map(([lo, la]) => `${((lo * K - minX) * sc).toFixed(1)},${((-la - minY) * sc).toFixed(1)}`).join('L') + 'Z').join('');
-      svg += `<path d="${path}" fill="${viewMode === 'points' ? '#eef1ee' : heatColor(t)}" stroke="#ffffff" stroke-width="0.7"><title>${esc(st.n)}: ${d.n} ${label} · ${money(d.value)}</title></path>`;
+      svg += `<path d="${path}" data-state="${esc(st.n)}" fill="${viewMode === 'points' ? '#eef1ee' : heatColor(t)}" stroke="#ffffff" stroke-width="0.8" style="cursor:${d.n ? 'pointer' : 'default'}"><title>${esc(st.n)}: ${d.n} ${label} · ${money(d.value)}</title></path>`;
     });
     if (viewMode === 'points') {
-      const pts = (GEO.points && GEO.points[metric]) || [];
+      const pts = [...((GEO.points && GEO.points[metric]) || [])].sort((a, b) => b[mode] - a[mode]);
       const pmax = Math.max(1e-9, ...pts.map(p => p[mode]));
-      pts.forEach(p => {
+      pts.forEach((p, idx) => {
         const x = ((p.lon * K - minX) * sc).toFixed(1), y = ((-p.lat - minY) * sc).toFixed(1);
-        const r = (4 + 14 * Math.sqrt(p[mode] / pmax)).toFixed(1);
-        svg += `<circle cx="${x}" cy="${y}" r="${r}" fill="rgba(34,96,164,.55)" stroke="#174a82" stroke-width="1">` +
+        const r = (5 + 16 * Math.sqrt(p[mode] / pmax)).toFixed(1);
+        svg += `<circle cx="${x}" cy="${y}" r="${r}" data-pin="${esc(p.pin)}" fill="rgba(34,96,164,.72)" stroke="#ffffff" stroke-width="1.5" style="cursor:pointer">` +
                `<title>PIN ${esc(p.pin)} — ${esc(p.customers.join(', '))}\n${p.n} ${label} · ${money(p.value)}</title></circle>`;
-        if (p[mode] >= pmax * 0.5) svg += `<text x="${x}" y="${(+y - +r - 3).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="#174a82">${mode === 'n' ? p.n : short(p.value)}</text>`;
+        if (idx < 5) svg += `<text x="${x}" y="${(+y - +r - 4).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="800" fill="#10395c" stroke="#ffffff" stroke-width="3" paint-order="stroke">${mode === 'n' ? p.n : short(p.value)}</text>`;
       });
     }
     svg += '</svg>';
     $('map-box').innerHTML = svg;
+    $('map-box').querySelectorAll('circle[data-pin]').forEach(c => c.onclick = () => { const p = GEO.points[metric].find(x => x.pin === c.dataset.pin); if (p) regionModal('Pincode ' + p.pin, p.customers, p.n, p.value, label); });
+    $('map-box').querySelectorAll('path[data-state]').forEach(pth => pth.onclick = () => { const d = data[pth.dataset.state]; if (d && d.n) regionModal(pth.dataset.state, d.customers, d.n, d.value, label); });
     $('map-title').textContent = '(' + $('map-metric').selectedOptions[0].text + ')';
     if (viewMode === 'points') {
       const miss = (GEO.no_pincode && GEO.no_pincode[metric]) || 0;
-      $('map-legend').innerHTML = 'Bubble size = ' + (mode === 'n' ? 'count' : 'value') + ' at that pincode · hover for details' +
+      $('map-legend').innerHTML = 'Bubble size = ' + (mode === 'n' ? 'count' : 'value') + ' at that pincode · top 5 labelled · click a bubble for its customers' +
         (miss ? ` &nbsp;·&nbsp; <span style="color:var(--warning);font-weight:700">${miss} record(s) have no pincode</span> — set pincodes in the Customers tab` : '');
       const pts = [...((GEO.points && GEO.points[metric]) || [])].sort((a, b) => b[mode] - a[mode]).slice(0, 12);
-      $('map-rows').innerHTML = pts.map(p => `<tr><td>${esc(p.pin)} · ${esc(p.customers[0] || '')}${p.customers.length > 1 ? ' +' + (p.customers.length - 1) : ''}</td><td class="num">${p.n}</td><td class="num">${inr(p.value)}</td></tr>`).join('') || '<tr class="empty"><td colspan="3">No pincodes set yet — add pincodes to customers</td></tr>';
+      $('map-rows').innerHTML = pts.map(p => `<tr style="cursor:pointer" data-rowpin="${esc(p.pin)}"><td>${esc(p.pin)} · ${esc(p.customers[0] || '')}${p.customers.length > 1 ? ' +' + (p.customers.length - 1) : ''}</td><td class="num">${p.n}</td><td class="num">${inr(p.value)}</td></tr>`).join('') || '<tr class="empty"><td colspan="3">No pincodes set yet — add pincodes to customers</td></tr>';
+      $('map-rows').querySelectorAll('[data-rowpin]').forEach(tr => tr.onclick = () => { const p = GEO.points[metric].find(x => x.pin === tr.dataset.rowpin); if (p) regionModal('Pincode ' + p.pin, p.customers, p.n, p.value, label); });
     } else {
       const steps = [0, .25, .5, .75, 1];
       $('map-legend').innerHTML = 'Low ' + steps.map(t => `<span style="display:inline-block;width:26px;height:11px;background:${heatColor(t)};border:1px solid var(--line)"></span>`).join('') +
@@ -612,7 +732,7 @@
         closeModal(); flash('User added — they can now log in with an OTP'); renderUsers();
       } catch (e) { flash(e.message, false); } };
     };
-    $('btn-login-history').onclick = loginHistory;
+    $('btn-login-history').onclick = () => loginHistory();
     const upd = async (u, patch) => { try {
       await api('/api/auth/users/' + u.id, { method: 'PUT', body: { email: u.email, name: u.name, role: patch.role ?? u.role, active: patch.active ?? u.active, rkz: patch.rkz ?? (u.rkz || '') } });
       renderUsers();
@@ -639,8 +759,8 @@
   }
 
   // ================= nav =================
-  const VIEWS = { dash: renderDash, enquiries: renderEnquiries, quotes: renderQuotes, orders: renderOrders, customers: renderCustomers, followups: renderFollowups, users: renderUsers };
-  const TITLES = { dash: 'Sales Dashboard', enquiries: 'Enquiries', quotes: 'Quotations', orders: 'Orders', customers: 'Customers', followups: 'Follow-ups', users: 'Users' };
+  const VIEWS = { dash: renderDash, enquiries: renderEnquiries, quotes: renderQuotes, orders: renderOrders, lost: renderLost, customers: renderCustomers, followups: renderFollowups, users: renderUsers };
+  const TITLES = { dash: 'Sales Dashboard', enquiries: 'Enquiries', quotes: 'Quotations', orders: 'Orders', lost: 'Lost Deals', customers: 'Customers', followups: 'Follow-ups', users: 'Users' };
   function switchView(v) {
     view = v;
     document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
