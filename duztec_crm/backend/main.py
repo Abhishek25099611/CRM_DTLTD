@@ -83,3 +83,9 @@ def css():
 @app.get("/crm.js", include_in_schema=False)
 def js():
     return FileResponse(FRONTEND / "crm.js", media_type="application/javascript", headers=NO_CACHE)
+
+
+@app.get("/charts.js", include_in_schema=False)
+def charts_js():
+    # served here (not via /static) so browsers revalidate it like crm.js — a cached old copy breaks the dashboard
+    return FileResponse(FRONTEND / "charts.js", media_type="application/javascript", headers=NO_CACHE)
