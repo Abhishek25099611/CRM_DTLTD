@@ -8,14 +8,14 @@ from fastapi import APIRouter, HTTPException, Request
 from . import auth, db
 from .config import SETTINGS
 from .schemas import TargetIn
-from .services import _is_admin, _q_totals
+from .services import NOT_SUPPORTING, _is_admin, _q_totals
 
 router = APIRouter()
 
 MEASURES = {
     "order_value": "Order value (₹)",
     "order_count": "Orders booked",
-    "quotation_value": "Quotation value sent (₹)",
+    "quotation_value": "Quotation value sent (₹, net excl. GST)",
     "quotation_count": "Quotations sent",
     "enquiry_count": "Enquiries logged",
 }
@@ -41,17 +41,18 @@ def achieved(con, rkz: str, measure: str, ps: str, pe: str) -> float:
     rkz = (rkz or "").upper()
     if not rkz:
         return 0.0
+    # Supporting quotations (and orders raised from them) are reference work, never business value
     if measure in ("order_value", "order_count"):
-        r = con.execute("""SELECT COUNT(*) n, COALESCE(SUM(o.value),0) v FROM orders o
+        r = con.execute(f"""SELECT COUNT(*) n, COALESCE(SUM(o.value),0) v FROM orders o
                            LEFT JOIN quotations q ON q.id=o.quotation_id
-                           WHERE (UPPER(o.responsible)=? OR UPPER(q.salesperson)=?)
+                           WHERE (UPPER(o.responsible)=? OR UPPER(q.salesperson)=?){NOT_SUPPORTING}
                              AND COALESCE(NULLIF(o.po_date,''), substr(o.created_at,1,10)) BETWEEN ? AND ?""",
                         (rkz, rkz, ps, pe)).fetchone()
         return float(r["v"]) if measure == "order_value" else float(r["n"])
     if measure in ("quotation_value", "quotation_count"):
-        ids = [r["id"] for r in con.execute("""SELECT id FROM quotations WHERE UPPER(salesperson)=? AND status!='superseded'
-                                               AND sent_at!='' AND substr(sent_at,1,10) BETWEEN ? AND ?""", (rkz, ps, pe))]
-        return float(sum(_q_totals(con, i)["total"] for i in ids)) if measure == "quotation_value" else float(len(ids))
+        ids = [r["id"] for r in con.execute(f"""SELECT id FROM quotations q WHERE UPPER(salesperson)=? AND status!='superseded'
+                                               AND sent_at!='' AND substr(sent_at,1,10) BETWEEN ? AND ?{NOT_SUPPORTING}""", (rkz, ps, pe))]
+        return float(sum(_q_totals(con, i)["net"] for i in ids)) if measure == "quotation_value" else float(len(ids))
     if measure == "enquiry_count":
         return float(con.execute("SELECT COUNT(*) FROM enquiries WHERE UPPER(salesperson)=? AND date BETWEEN ? AND ?",
                                  (rkz, ps, pe)).fetchone()[0])

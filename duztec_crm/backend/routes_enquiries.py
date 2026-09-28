@@ -52,11 +52,11 @@ def add_enquiry(e: EnquiryIn, request: Request):
                          AND date >= date('now','-60 day')""", (e.customer_id, e.system.strip())).fetchone()
     no = db.next_enq_no(con)
     cur = con.execute("""INSERT INTO enquiries(enq_no,date,source,customer_id,contact_id,requirement,system,
-                         expected_value,salesperson,priority,status,created_at,updated_at)
-                         VALUES(?,?,?,?,?,?,?,?,?,?, 'new', ?, ?)""",
+                         expected_value,salesperson,priority,technical,status,created_at,updated_at)
+                         VALUES(?,?,?,?,?,?,?,?,?,?,?, 'new', ?, ?)""",
                       (no, e.date or date.today().isoformat(), e.source, e.customer_id, e.contact_id,
                        e.requirement, e.system.strip(), e.expected_value, e.salesperson, e.priority,
-                       db.now(), db.now()))
+                       e.technical.strip(), db.now(), db.now()))
     db.log_activity(con, "enquiry", cur.lastrowid, "created", f"{no} · {e.system}")
     con.commit(); nid = cur.lastrowid; con.close()
     return {"id": nid, "enq_no": no,

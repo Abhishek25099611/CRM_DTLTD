@@ -14,9 +14,9 @@ sections 1–7 before the first install; sections 8–15 are operational referen
 
 | Area | Capability |
 |---|---|
-| Enquiries | Punch-in form (`ENQ-2627-###`), duplicate warning, kanban New/Qualified/Quoted/Closed |
-| Quotations | Line items with HSN/qty/rate/GST, CGST+SGST vs IGST, discount, revisions (`Q00xxx-B`), letterhead print → PDF |
-| Orders | Created automatically when a quotation is marked **Won** (captures customer PO) |
+| Enquiries | Punch-in form (`ENQ-2627-###`) with Enquiry Type and a **Technical** requirement field, duplicate warning, kanban New/Qualified/Quoted/Closed |
+| Quotations | Line items with HSN/qty/rate/GST, CGST+SGST vs IGST, discount, revisions (`Q00xxx-B`), **Project specification** (Tender / Technical / Supporting / Other) with a list filter, end customer, text sections + auto-numbered **Terms & Conditions**, letterhead print → PDF. **Net value (excl. GST) is the primary figure**; Supporting quotations are never counted as business value |
+| Orders | Created automatically when a quotation is marked **Won** (captures customer PO, delivery date, contact person name/phone/email copied from the quotation) |
 | Customers | Master with GSTIN, state, pincode, contacts |
 | Follow-ups | Dated reminders with due/overdue list |
 | Dashboard | KPIs, funnel, quotations-by-month, **India map** (pincode bubbles or state heat) |

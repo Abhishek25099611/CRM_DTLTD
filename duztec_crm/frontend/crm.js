@@ -112,6 +112,17 @@
   const custOptions = sel => '<option value="">— select customer —</option>' + customersCache.map(c => `<option value="${c.id}" ${c.id == sel ? 'selected' : ''}>${esc(c.name)}${c.end_customer ? ' → ' + esc(c.end_customer) : ''}</option>`).join('');
   const stateOptions = sel => '<option value="">— select state —</option>' + (CFG.states || []).map(s => `<option ${s === sel ? 'selected' : ''}>${esc(s)}</option>`).join('');
   const typeOptions = sel => (CFG.enquiry_types || ['Normal']).map(t => `<option ${t === (sel || 'Normal') ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  // Project specification on quotations; a legacy value (e.g. "Normal") stays selectable on that quotation
+  const qtypeOptions = sel => { const list = [...(CFG.quotation_types || ['Tender', 'Technical', 'Supporting', 'Other'])]; if (sel && !list.includes(sel)) list.push(sel);
+    return list.map(t => `<option ${t === sel ? 'selected' : ''}>${esc(t)}</option>`).join(''); };
+  // Terms & Conditions: one term per line -> numbered list (same rule as the printed quotation)
+  const termsList = text => { const items = []; (text || '').split(/\r?\n/).forEach(l => { if (!l.trim()) return;
+      if (items.length && /^\s/.test(l) && !/^\s*(\(?\d{1,2}[.):]|[-•*])/.test(l)) items[items.length - 1] += ' ' + l.trim();
+      else items.push(l.replace(/^\s*(\(?\d{1,2}[.):]|[-•*])\s*/, '').trim()); });
+    return items.length ? '<ol class="tc">' + items.map(t => `<li>${esc(t)}</li>`).join('') + '</ol>' : ''; };
+  // pre-Phase-4 quotations kept delivery / payment / guarantee / notes apart; fold them into T&C when edited
+  const legacyTerms = x => [x.delivery_terms && 'Delivery: ' + x.delivery_terms, x.payment_terms && 'Payment: ' + x.payment_terms,
+    x.guarantee && 'Guarantee: ' + x.guarantee, x.notes].filter(Boolean).join('\n');
   const contactLabel = c => esc(c.name) + (c.designation ? ' — ' + esc(c.designation) : '') + (c.department ? ' (' + esc(c.department) + ')' : '');
 
   // ================= DOCUMENTS (shared panel) =================
@@ -154,9 +165,9 @@
       <section class="kpis">
         <div class="kpi neutral"><div class="kpi-label">Open Enquiries</div><div class="kpi-value">${openEnq}</div><div class="kpi-sub">${s.enquiries_stale} idle &gt; 7 days</div></div>
         <div class="kpi ${sla.open_breach ? 'critical' : 'success'}"><div class="kpi-label">Quoted within ${sla.limit || 48}h</div><div class="kpi-value">${sla.pct_in_time == null ? '—' : sla.pct_in_time + '%'}</div><div class="kpi-sub">${sla.in_time || 0} in time · ${sla.late || 0} late · <b>${sla.open_breach || 0}</b> open overdue</div></div>
-        <div class="kpi overdue"><div class="kpi-label">Pipeline Value</div><div class="kpi-value">${money(s.pipeline_value)}</div><div class="kpi-sub">${(qs.sent || 0) + (qs.draft || 0)} live quotations</div></div>
+        <div class="kpi overdue"><div class="kpi-label">Pipeline Value</div><div class="kpi-value">${money(s.pipeline_value)}</div><div class="kpi-sub">${(qs.sent || 0) + (qs.draft || 0)} live quotations · net, excl. GST${s.supporting_excluded ? ` · <span title="Supporting quotations are reference work and are not counted in any ₹ figure or win rate">${s.supporting_excluded} supporting excluded</span>` : ''}</div></div>
         <div class="kpi success"><div class="kpi-label">Won Orders</div><div class="kpi-value">${money(s.won_value)}</div><div class="kpi-sub"><b>${s.orders.n}</b> orders booked</div></div>
-        <div class="kpi critical"><div class="kpi-label">Lost</div><div class="kpi-value">${money(s.lost_value)}</div><div class="kpi-sub"><b>${s.lost}</b> lost · quoted value incl. GST</div></div>
+        <div class="kpi critical"><div class="kpi-label">Lost</div><div class="kpi-value">${money(s.lost_value)}</div><div class="kpi-sub"><b>${s.lost}</b> lost · quoted net value excl. GST</div></div>
         <div class="kpi warning"><div class="kpi-label">Win Rate</div><div class="kpi-value">${s.win_rate_count}%</div><div class="kpi-sub">by count · <b>${s.win_rate_value}%</b> by value</div></div>
         <div class="kpi minor"><div class="kpi-label">Follow-ups Due</div><div class="kpi-value">${s.followups_due}</div><div class="kpi-sub">today or overdue</div></div>
       </section>
@@ -252,6 +263,7 @@
       <div class="full"><label>Requirement</label><textarea id="f-req"></textarea></div>
       <div><label>Salesperson (RKZ)</label><input id="f-sp" placeholder="e.g. RV" value="${!isAdmin() ? esc(ME.rkz) : ''}" ${!isAdmin() ? 'readonly style="background:var(--gray)"' : ''}></div>
       <div><label>Enquiry type</label><select id="f-type">${typeOptions()}</select></div>
+      <div class="full"><label>Technical <span class="muted small">— important technical requirement or consideration for this enquiry</span></label><textarea id="f-tech" rows="2" placeholder="e.g. 30 m throw, 415 V 3-ph supply at site, dust load 200 mg/Nm³"></textarea></div>
       <div class="full muted small">The 48-working-hour quotation timer starts when you save this enquiry.</div>
       <div class="full"><button class="btn primary" id="f-save">Save Enquiry</button></div></div>`);
     $('f-cust').onchange = async () => { const cid = $('f-cust').value; if (!cid) return;
@@ -262,7 +274,8 @@
       try {
         const r = await api('/api/enquiries', { body: { date: $('f-date').value, source: $('f-source').value,
           customer_id: +$('f-cust').value, contact_id: +$('f-contact').value || null, system: $('f-system').value,
-          expected_value: +$('f-value').value || 0, requirement: $('f-req').value, salesperson: $('f-sp').value, priority: $('f-type').value } });
+          expected_value: +$('f-value').value || 0, requirement: $('f-req').value, salesperson: $('f-sp').value, priority: $('f-type').value,
+          technical: $('f-tech').value } });
         closeModal(); flash('Enquiry ' + r.enq_no + ' created' + (r.duplicate_warning ? ' — ⚠ ' + r.duplicate_warning : ''));
         renderEnquiries();
       } catch (e) { flash(e.message, false); }
@@ -272,7 +285,7 @@
   function enquiryActions(e) {
     openModal(e.enq_no + ' — ' + e.customer, `
       <p>${pill(e.status)} ${typePill(e.priority)} ${slaBadge(e)} · ${esc(e.system)} · ${esc(e.date)} · ${esc(e.source)}${e.expected_value ? ' · ' + money(e.expected_value) : ''}${e.contact ? ' · ' + esc(e.contact) : ''}${e.end_customer ? '<br>End customer: ' + esc(e.end_customer) : ''}<br>
-      <span class="muted">${esc(e.requirement || '')}</span></p>
+      <span class="muted">${esc(e.requirement || '')}</span>${e.technical ? '<br><b>Technical:</b> <span class="muted">' + esc(e.technical) + '</span>' : ''}</p>
       <div class="filter-actions" style="flex-wrap:wrap">
         <button class="btn primary" id="a-quote" data-write>Create Quotation</button>
         ${isAdmin() ? '<button class="btn secondary" id="a-rkz" data-write>Assign RKZ (' + esc(e.salesperson || 'none') + ')</button>' : ''}
@@ -290,25 +303,27 @@
   }
 
   // ================= QUOTATIONS =================
-  let quoteSearch = '';
+  let quoteSearch = '', quoteType = '';
   async function renderQuotes() {
     await loadCustomers();
-    const list = await api('/api/quotations' + (quoteSearch ? '?q=' + encodeURIComponent(quoteSearch) : ''));
+    const qp = new URLSearchParams(); if (quoteSearch) qp.set('q', quoteSearch); if (quoteType) qp.set('type', quoteType);
+    const list = await api('/api/quotations' + (qp.toString() ? '?' + qp : ''));
     const canEditRow = q => isAdmin() || q.status === 'draft';   // engineers: own drafts only (server enforces too)
     $('view').innerHTML = `
       <section class="card filters">
         <div class="filter grow"><label for="q-search">Search quotation no. or customer</label><input id="q-search" value="${esc(quoteSearch)}" placeholder="e.g. Q00566 or JSW"></div>
+        <div class="filter"><label for="q-type-filter">Project specification</label><select id="q-type-filter"><option value="">All types</option>${(CFG.quotation_types || []).map(t => `<option ${t === quoteType ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
         <div class="filter-actions">
           <button class="btn" id="btn-q-search">Search</button>
           <button class="btn primary" id="btn-new-q" data-write>+ New Quotation</button>
           <a class="btn secondary" href="/api/export/quotations.xlsx">Export Excel</a></div>
-        <div class="muted small" style="flex-basis:100%">${list.length} quotations (excluding superseded revisions). Click a quotation number for full details.${!isAdmin() ? ' You can edit your own Drafts; once Sent, only an admin can edit or revise.' : ''}</div></section>
+        <div class="muted small" style="flex-basis:100%">${list.length} quotations${quoteType ? ' of type ' + esc(quoteType) : ''} (excluding superseded revisions). Values are net, excl. GST. Supporting quotations are reference only and are not counted on the dashboard. Click a quotation number for full details.${!isAdmin() ? ' You can edit your own Drafts; once Sent, only an admin can edit or revise.' : ''}</div></section>
       <section class="card"><div class="table-wrap"><table><thead>
-        <tr><th>No.</th><th>Date</th><th>Customer</th><th>Type</th><th class="num">Items</th><th class="num">Total (incl. GST)</th><th>Status</th><th>RKZ</th><th>Actions</th></tr></thead>
+        <tr><th>No.</th><th>Date</th><th>Customer</th><th>Project spec.</th><th class="num">Items</th><th class="num">Net value (excl. GST)</th><th>Status</th><th>RKZ</th><th>Actions</th></tr></thead>
         <tbody>${list.map(q => `<tr>
-          <td><button class="link-btn" data-detail="${q.id}">${esc(q.quote_no)}${q.rev ? '-' + q.rev : ''}</button></td><td>${esc(q.date)}</td><td class="wrap">${esc(q.customer)}${q.contact ? `<div class="muted small">${esc(q.contact)}</div>` : ''}</td>
+          <td><button class="link-btn" data-detail="${q.id}">${esc(q.quote_no)}${q.rev ? '-' + q.rev : ''}</button></td><td>${esc(q.date)}</td><td class="wrap">${esc(q.customer)}${q.end_customer_shown ? `<div class="muted small">→ ${esc(q.end_customer_shown)}</div>` : ''}${q.contact ? `<div class="muted small">${esc(q.contact)}</div>` : ''}</td>
           <td>${typePill(q.type)}</td>
-          <td class="num">${q.item_count}</td><td class="num">${inr(q.total)}</td><td>${pill(q.status)}${q.lost_reason ? `<div class="muted small">${esc(q.lost_reason)}</div>` : ''}</td>
+          <td class="num">${q.item_count}</td><td class="num" title="Total incl. GST: ${inr(q.total)}">${inr(q.net)}</td><td>${pill(q.status)}${q.lost_reason ? `<div class="muted small">${esc(q.lost_reason)}</div>` : ''}</td>
           <td>${esc(q.salesperson || '')}${isAdmin() ? ` <button class="btn small" data-qrkz="${q.id}" data-cur="${esc(q.salesperson || '')}" title="Assign RKZ" data-write>✎</button>` : ''}</td>
           <td class="actions-cell">
             <a class="btn small secondary" target="_blank" href="/api/quotations/${q.id}/print">Print</a>
@@ -320,6 +335,7 @@
             <button class="btn small" data-qdocs="${q.id}" data-no="${esc(q.quote_no)}">Files</button>
           </td></tr>`).join('') || '<tr class="empty"><td colspan="9">No quotations match</td></tr>'}</tbody></table></div></section>`;
     $('btn-q-search').onclick = () => { quoteSearch = $('q-search').value.trim(); renderQuotes(); };
+    $('q-type-filter').onchange = () => { quoteType = $('q-type-filter').value; renderQuotes(); };
     $('q-search').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-q-search').click(); });
     $('btn-new-q').onclick = () => quoteForm(null);
     document.querySelectorAll('[data-detail]').forEach(b => b.onclick = () => quoteDetail(+b.dataset.detail));
@@ -344,24 +360,26 @@
         <button class="btn small" id="qd-docs">Files (${d.documents.length})</button>
         ${d.can_edit && ['draft', 'sent'].includes(d.status) ? '<button class="btn small" id="qd-edit" data-write>Edit</button>' : ''}</div>
       <div class="detail-grid">
-        ${row('Customer', esc(c.name))}${row('End customer', esc(c.end_customer))}
+        ${row('Customer', esc(c.name))}${row('End customer', esc(d.end_customer || c.end_customer))}
         ${row('GSTIN', esc(c.gstin))}${row('State · Pincode', esc((c.state || '') + (c.pincode ? ' · ' + c.pincode : '')))}
         ${row('Contact person', ct ? contactLabel(ct) + (ct.phone ? ' · ' + esc(ct.phone) : '') + (ct.email ? ' · ' + esc(ct.email) : '') : '')}
         ${row('Address', esc(c.address))}
         ${row('Date · Validity', esc(d.date) + ' · ' + d.validity_days + ' days')}${row('RKZ', esc(d.salesperson))}
         ${row('GST mode', d.gst_mode === 'inter' ? 'IGST (other state)' : 'CGST + SGST')}${row('Sent on', esc(d.sent_at))}
         ${row('Enquiry', e ? esc(e.enq_no) + ' · ' + esc(e.date) + ' ' + slaBadge(e) : '')}${row('Discount', d.discount_pct ? d.discount_pct + '%' : '')}
+        ${e && e.technical ? row('Technical (from enquiry)', esc(e.technical)) : ''}
       </div>
       <div class="detail-section"><h3>Products &amp; pricing</h3>
         <div class="table-wrap"><table><thead><tr><th>#</th><th>Description</th><th>HSN</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate</th><th class="num">Net price</th><th class="num">GST</th><th class="num">Total price</th></tr></thead>
         <tbody>${d.items.map(i => `<tr><td>${i.sr}</td><td class="wrap">${esc(i.description)}</td><td>${esc(i.hsn)}</td><td class="num">${i.qty}</td><td>${esc(i.unit)}</td><td class="num">${inr(i.rate)}</td><td class="num">${inr(net(i))}</td><td class="num">${i.gst_pct}%</td><td class="num">${inr(net(i) * (1 + (i.gst_pct || 0) / 100))}</td></tr>`).join('')}</tbody></table></div>
-        <div class="totals-box"><span>Subtotal (net): ${money(d.subtotal)}</span>${d.discount_pct ? `<span>Discount ${d.discount_pct}%</span>` : ''}<span>GST: ${money(d.gst)}</span><b>Grand total: ${money(d.total)}</b></div></div>
+        <div class="totals-box">${d.discount_pct ? `<span>Subtotal: ${money(d.subtotal)}</span><span>Discount ${d.discount_pct}%</span>` : ''}<b>Net total (excl. GST): ${money(d.net)}</b><span>GST: ${money(d.gst)}</span><span class="muted">Total incl. GST: ${money(d.total)}</span></div></div>
       <div class="detail-section"><div class="detail-grid">
-        ${row('Payment terms', esc(d.payment_terms))}${row('Delivery terms', esc(d.delivery_terms))}
         ${row('Scope of supply', esc(d.scope))}${row('Warranty', esc(d.warranty))}
-        ${row('Guarantee', esc(d.guarantee))}${row('Notes', esc(d.notes))}</div></div>
-      <div class="detail-section"><h3>Order status</h3>${o ? `${pill('won')} SO <b>${esc(o.so_no || '—')}</b> · Customer PO ${esc(o.po_no || '—')} (${esc(o.po_date)}) · ${money(o.value)}${o.delivery_date ? ' · delivery ' + esc(o.delivery_date) : ''}` : d.status === 'lost' ? `${pill('lost')} ${esc(d.lost_reason)}` : '<span class="muted">No order yet</span>'}</div>
-      <div class="detail-section"><h3>Revisions</h3>${d.revisions.map(r => `<div>${esc(r.quote_no)}${r.rev ? '-' + r.rev : ''} ${pill(r.status)} ${esc(r.date)} · ${money(r.total)}</div>`).join('')}</div>
+        ${row('Additional description', esc(d.additional_description))}${row('Introduction', esc(d.introduction))}
+        ${!d.terms_conditions && (d.payment_terms || d.delivery_terms || d.guarantee || d.notes) ? row('Payment terms', esc(d.payment_terms)) + row('Delivery terms', esc(d.delivery_terms)) + row('Guarantee', esc(d.guarantee)) + row('Notes', esc(d.notes)) : ''}</div>
+        <h3 style="margin-top:12px">Terms &amp; Conditions</h3>${termsList(d.terms_conditions) || '<span class="muted">None recorded on this quotation (older quotations print their delivery / payment terms instead).</span>'}</div>
+      <div class="detail-section"><h3>Order status</h3>${o ? `${pill('won')} SO <b>${esc(o.so_no || '—')}</b> · Customer PO ${esc(o.po_no || '—')} (${esc(o.po_date)}) · ${money(o.value)}${o.delivery_date ? ' · delivery ' + esc(o.delivery_date) : ''}${o.contact_name ? ' · contact ' + esc(o.contact_name) + (o.contact_phone ? ' ' + esc(o.contact_phone) : '') : ''}` : d.status === 'lost' ? `${pill('lost')} ${esc(d.lost_reason)}` : '<span class="muted">No order yet</span>'}</div>
+      <div class="detail-section"><h3>Revisions</h3>${d.revisions.map(r => `<div>${esc(r.quote_no)}${r.rev ? '-' + r.rev : ''} ${pill(r.status)} ${esc(r.date)} · ${money(r.net)} net</div>`).join('')}</div>
       <div class="detail-section"><h3>Attachments (${d.documents.length})</h3>${d.documents.map(x => `<div><a class="link" href="/api/documents/${x.id}/download">${esc(x.filename)}</a> <span class="muted small">${esc(x.category)} · on ${esc(x.entity_type)} · ${esc(x.uploaded_at.slice(0, 10))}</span></div>`).join('') || '<span class="muted">None — use Files to attach the customer PO, drawings or offers received.</span>'}</div>
       ${d.followups.length ? `<div class="detail-section"><h3>Follow-ups</h3>${d.followups.map(f => `<div>${esc(f.due_date)} · ${esc(f.channel)} · ${esc(f.note)} ${f.done ? '<span class="muted">(done)</span>' : ''}</div>`).join('')}</div>` : ''}`);
     $('qd-docs').onclick = () => docsPanel('quotation', d.id, d.quote_no, () => {});
@@ -387,7 +405,9 @@
     const d = CFG.quotation_defaults;
     const q = existing || {};
     try { PRODUCTS = await api('/api/products?active_only=1'); } catch (e) { PRODUCTS = []; }
-    const sec = (id, label, val) => `<div class="full"><label>${label}</label><textarea id="${id}" rows="3">${esc(val || '')}</textarea></div>`;
+    const sec = (id, label, val, rows = 3) => `<div class="full"><label>${label}</label><textarea id="${id}" rows="${rows}">${esc(val || '')}</textarea></div>`;
+    const qtypes = CFG.quotation_types || [];
+    const startType = q.type || (enq && qtypes.includes(enq.priority) ? enq.priority : (qtypes[qtypes.length - 1] || 'Other'));
     openModal(existing ? `Edit ${q.quote_no}${q.rev ? '-' + q.rev : ''}` : 'New Quotation' + (enq ? ' — from ' + enq.enq_no : ''), `
       <div class="modal-form">
         <div class="full"><label>Customer</label><select id="q-cust">${custOptions(q.customer_id || (enq && enq.customer_id))}</select></div>
@@ -397,7 +417,8 @@
         <div><label>GST mode</label><select id="q-gst"><option value="intra" ${q.gst_mode !== 'inter' ? 'selected' : ''}>Within ${esc(CFG.company.home_state || 'state')} (CGST+SGST)</option><option value="inter" ${q.gst_mode === 'inter' ? 'selected' : ''}>Other state (IGST)</option></select></div>
         <div><label>Discount %</label><input type="number" id="q-disc" value="${q.discount_pct || 0}" min="0" step="any"></div>
         <div><label>Salesperson (RKZ)</label><input id="q-sp" value="${!isAdmin() ? esc(ME.rkz) : esc(q.salesperson || (enq && enq.salesperson) || '')}" ${!isAdmin() ? 'readonly style="background:var(--gray)"' : ''}></div>
-        <div><label>Quotation type</label><select id="q-type">${typeOptions(q.type || (enq && enq.priority) || 'Normal')}</select></div>
+        <div><label>Project specification</label><select id="q-type">${qtypeOptions(startType)}</select></div>
+        <div class="full"><label>End customer <span class="muted small">— plant / end user; pre-filled from the customer master, editable per quotation</span></label><input id="q-endc" value="${esc(q.end_customer || (enq && enq.end_customer) || '')}" data-auto="${q.end_customer ? '' : '1'}"></div>
         ${sec('q-intro', 'Introduction (printed before the price table)', q.introduction || d.introduction)}
       </div>
       <div class="items-editor"><h3 style="margin:6px 0">Line items</h3>
@@ -409,20 +430,21 @@
       <div class="modal-form">
         ${sec('q-scope', 'Scope of supply', q.scope || d.scope)}
         ${sec('q-warranty', 'Warranty', q.warranty || d.warranty)}
-        ${sec('q-guarantee', 'Guarantee', q.guarantee || d.guarantee)}
-        ${sec('q-del', 'Delivery terms', q.delivery_terms || d.delivery_terms)}
-        ${sec('q-pay', 'Payment terms', q.payment_terms || d.payment_terms)}
-        ${sec('q-notes', 'Notes', q.notes || d.notes)}
+        ${sec('q-adddesc', 'Additional description <span class="muted small">— anything specific to this offer (optional)</span>', q.additional_description || (existing ? '' : d.additional_description))}
+        ${sec('q-terms', 'Terms &amp; Conditions <span class="muted small">— one term per line; the print numbers them 1, 2, 3…</span>', q.terms_conditions || (existing ? legacyTerms(q) : d.terms_conditions), 8)}
         <div class="full filter-actions"><button class="btn primary" id="q-save">${existing ? 'Save Changes' : 'Save Draft'}</button></div>
       </div>`);
     const loadContacts = async () => { const cid = $('q-cust').value; if (!cid) return;
       const cs = await api('/api/contacts?customer_id=' + cid);
-      $('q-contact').innerHTML = '<option value="">—</option>' + cs.map(c => `<option value="${c.id}" ${c.id == (q.contact_id || (enq && enq.contact_id)) ? 'selected' : ''}>${contactLabel(c)}</option>`).join(''); };
+      $('q-contact').innerHTML = '<option value="">—</option>' + cs.map(c => `<option value="${c.id}" ${c.id == (q.contact_id || (enq && enq.contact_id)) ? 'selected' : ''}>${contactLabel(c)}</option>`).join('');
+      const cc = customersCache.find(x => x.id == cid);   // end customer follows the customer master until typed over
+      if (cc && ($('q-endc').dataset.auto || !$('q-endc').value)) { $('q-endc').value = cc.end_customer || ''; $('q-endc').dataset.auto = '1'; } };
+    $('q-endc').addEventListener('input', () => { $('q-endc').dataset.auto = ''; });
     $('q-cust').onchange = loadContacts; loadContacts();
     const recalc = () => { let sub = 0, gst = 0; const disc = +$('q-disc').value || 0;
       document.querySelectorAll('#q-items tr').forEach(tr => { const a = (+tr.querySelector('.i-qty').value || 0) * (+tr.querySelector('.i-rate').value || 0); tr.querySelector('.i-net').textContent = inr(a); sub += a; gst += a * (1 - disc / 100) * ((+tr.querySelector('.i-gst').value || 0) / 100); });
       const tot = sub * (1 - disc / 100) + gst;
-      $('q-totals').innerHTML = `<span>Subtotal (net): ${money(sub)}</span>${disc ? `<span>Discount: −${money(sub * disc / 100)}</span>` : ''}<span>GST: ${money(gst)}</span><b>Total: ${money(tot)}</b>`; };
+      $('q-totals').innerHTML = `${disc ? `<span>Subtotal: ${money(sub)}</span><span>Discount: −${money(sub * disc / 100)}</span>` : ''}<b>Net total (excl. GST): ${money(sub * (1 - disc / 100))}</b><span>GST: ${money(gst)}</span><span class="muted">Total incl. GST: ${money(tot)}</span>`; };
     $('modal-body').addEventListener('input', recalc);
     $('modal-body').addEventListener('change', e => {   // product picked -> fill the line from the master
       if (!e.target.classList.contains('i-prod')) return;
@@ -447,8 +469,8 @@
       const body = { enquiry_id: enq ? enq.id : (q.enquiry_id || null), customer_id: +$('q-cust').value,
         contact_id: +$('q-contact').value || null, date: $('q-date').value, validity_days: +$('q-valid').value,
         gst_mode: $('q-gst').value, discount_pct: +$('q-disc').value || 0, salesperson: $('q-sp').value, type: $('q-type').value,
-        introduction: $('q-intro').value, scope: $('q-scope').value, warranty: $('q-warranty').value, guarantee: $('q-guarantee').value,
-        delivery_terms: $('q-del').value, payment_terms: $('q-pay').value, notes: $('q-notes').value, items };
+        introduction: $('q-intro').value, scope: $('q-scope').value, warranty: $('q-warranty').value,
+        additional_description: $('q-adddesc').value, terms_conditions: $('q-terms').value, end_customer: $('q-endc').value.trim(), items };
       try {
         const r = existing ? await api('/api/quotations/' + q.id, { method: 'PUT', body })
                            : await api('/api/quotations', { body });
@@ -463,12 +485,13 @@
       <div><label>Customer PO No.</label><input id="w-po"></div>
       <div><label>PO Date</label><input type="date" id="w-date" value="${today()}"></div>
       <div><label>Sales Order (SO) No.</label><input id="w-so" placeholder="e.g. S00390"></div>
-      <div><label>Order value ₹ (blank = quote total)</label><input type="number" id="w-val" min="0" step="any"></div>
+      <div><label>Order value ₹ (blank = quotation net value, excl. GST)</label><input type="number" id="w-val" min="0" step="any"></div>
+      <div><label>Expected / committed delivery date</label><input type="date" id="w-deliv"></div>
       <div class="full doc-drop">Attach the customer's PO (PDF, optional — can be added later under Files)<input type="file" id="w-pdf" accept=".pdf,.jpg,.jpeg,.png"></div>
-      <div class="full muted small">Payment terms and the product are copied from the quotation onto the order. You can edit them later in the Orders tab.</div>
+      <div class="full muted small">The product and the quotation's contact person are copied onto the order. Contact details, delivery date and payment terms can be edited later in the Orders tab.</div>
       <div class="full"><button class="btn primary" id="w-save">Confirm Won → create Order</button></div></div>`);
     $('w-save').onclick = async () => { try {
-      const r = await api(`/api/quotations/${qid}/status`, { body: { status: 'won', po_no: $('w-po').value, so_no: $('w-so').value, po_date: $('w-date').value, value: +$('w-val').value || 0 } });
+      const r = await api(`/api/quotations/${qid}/status`, { body: { status: 'won', po_no: $('w-po').value, so_no: $('w-so').value, po_date: $('w-date').value, value: +$('w-val').value || 0, delivery_date: $('w-deliv').value } });
       const f = $('w-pdf').files[0];
       if (f && r.order_id) {
         const fd = new FormData(); fd.append('entity_type', 'order'); fd.append('entity_id', r.order_id); fd.append('category', 'Customer PO'); fd.append('note', 'PO ' + $('w-po').value); fd.append('file', f);
@@ -489,15 +512,19 @@
   // ================= ORDERS =================
   async function renderOrders() {
     const list = await api('/api/orders');
-    const total = list.reduce((a, o) => a + (o.value || 0), 0);
-    $('view').innerHTML = `<section class="card"><h2>Orders <span class="muted small">(${list.length} · ${money(total)})</span></h2>
+    const isSup = o => o.quote_type === 'Supporting';
+    const total = list.filter(o => !isSup(o)).reduce((a, o) => a + (o.value || 0), 0);
+    const nSup = list.filter(isSup).length;
+    $('view').innerHTML = `<section class="card"><h2>Orders <span class="muted small">(${list.length} · ${money(total)}${nSup ? ` · ${nSup} from supporting quotations not counted` : ''})</span></h2>
       <div class="filter-actions" style="margin-bottom:10px"><a class="btn secondary" href="/api/export/orders.xlsx">Export Excel</a></div>
-      <div class="table-wrap"><table><thead><tr><th>SO No.</th><th>PO No.</th><th>PO Date</th><th>Customer</th><th>Product</th><th>Quote</th><th>RKZ</th><th class="num">Value</th><th>Payment terms</th><th></th></tr></thead>
+      <div class="table-wrap"><table><thead><tr><th>SO No.</th><th>PO No.</th><th>PO Date</th><th>Customer</th><th>Contact person</th><th>Product</th><th>Quote</th><th>RKZ</th><th class="num">Value</th><th>Delivery date</th><th>Payment terms</th><th></th></tr></thead>
       <tbody>${list.map(o => `<tr><td><b>${esc(o.so_no || '—')}</b></td><td class="wrap">${esc(o.po_no)}</td><td>${esc(o.po_date)}</td><td class="wrap">${esc(o.customer)}</td>
-        <td class="wrap">${esc(o.system || '')}</td><td>${o.quote_no ? `<button class="link-btn" data-odetail="${o.quotation_id}">${esc(o.quote_no)}${o.quote_rev ? '-' + esc(o.quote_rev) : ''}</button>` : ''}</td>
+        <td class="wrap">${o.contact_name ? esc(o.contact_name) + (o.contact_phone ? `<div class="muted small">${esc(o.contact_phone)}</div>` : '') + (o.contact_email ? `<div class="muted small">${esc(o.contact_email)}</div>` : '') : '<span class="muted">—</span>'}</td>
+        <td class="wrap">${esc(o.system || '')}</td><td>${o.quote_no ? `<button class="link-btn" data-odetail="${o.quotation_id}">${esc(o.quote_no)}${o.quote_rev ? '-' + esc(o.quote_rev) : ''}</button>` : ''}${isSup(o) ? '<div>' + typePill('Supporting') + '</div>' : ''}</td>
         <td>${esc(o.responsible || '—')}${isAdmin() ? ` <button class="btn small" data-orkz="${o.id}" data-cur="${esc(o.responsible || '')}" title="Assign RKZ" data-write>✎</button>` : ''}</td>
-        <td class="num">${inr(o.value)}</td><td class="wrap">${esc(o.payment_terms)}</td>
-        <td class="actions-cell"><button class="btn small" data-oedit="${o.id}" title="Edit SO / PO / terms" data-write>Edit</button><button class="btn small" data-odocs="${o.id}" data-no="${esc(o.so_no || o.po_no || o.customer)}">Files</button></td></tr>`).join('') || '<tr class="empty"><td colspan="10">No orders</td></tr>'}</tbody></table></div></section>`;
+        <td class="num">${inr(o.value)}</td><td>${o.delivery_date ? `<span class="${o.delivery_date < today() ? 'sla sla-breach' : ''}" title="${o.delivery_date < today() ? 'Delivery date has passed' : 'Expected / committed delivery'}">${esc(o.delivery_date)}</span>` : '<span class="muted">—</span>'}</td><td class="wrap">${esc(o.payment_terms)}</td>
+        <td class="actions-cell"><button class="btn small" data-oedit="${o.id}" title="Edit SO / PO / contact / delivery / terms" data-write>Edit</button><button class="btn small" data-odocs="${o.id}" data-no="${esc(o.so_no || o.po_no || o.customer)}">Files</button></td></tr>`).join('') || '<tr class="empty"><td colspan="12">No orders</td></tr>'}</tbody></table></div>
+      <div class="muted small" style="margin-top:8px">New orders take the quotation's net value (excl. GST) unless a value is entered when marking Won. The contact person is copied from the quotation; use Edit to change it or to set the delivery date.</div></section>`;
     document.querySelectorAll('[data-orkz]').forEach(b => b.onclick = () => assignRkz('order', [+b.dataset.orkz], b.dataset.cur, renderOrders));
     document.querySelectorAll('[data-oedit]').forEach(b => b.onclick = () => orderForm(list.find(x => x.id == b.dataset.oedit)));
     document.querySelectorAll('[data-odocs]').forEach(b => b.onclick = () => docsPanel('order', +b.dataset.odocs, 'Order ' + b.dataset.no));
@@ -510,13 +537,16 @@
       <div><label>Customer PO No.</label><input id="o-po" value="${esc(o.po_no || '')}"></div>
       <div><label>PO Date</label><input type="date" id="o-date" value="${esc(o.po_date || '')}"></div>
       <div><label>Order value ₹</label><input type="number" id="o-val" value="${o.value || 0}" min="0" step="any"></div>
-      <div><label>Delivery date</label><input type="date" id="o-deliv" value="${esc(o.delivery_date || '')}"></div>
-      <div></div>
+      <div><label>Delivery date (expected / committed)</label><input type="date" id="o-deliv" value="${esc(o.delivery_date || '')}"></div>
+      <div><label>Contact person name</label><input id="o-cname" value="${esc(o.contact_name || '')}"></div>
+      <div><label>Contact phone</label><input id="o-cphone" value="${esc(o.contact_phone || '')}"></div>
+      <div><label>Contact email</label><input type="email" id="o-cemail" value="${esc(o.contact_email || '')}"></div>
       <div class="full"><label>Payment terms</label><textarea id="o-pay" rows="3">${esc(o.payment_terms || '')}</textarea></div>
       <div class="full"><button class="btn primary" id="o-save">Save Order</button></div></div>`);
     $('o-save').onclick = async () => { try {
       await api('/api/orders/' + o.id, { method: 'PUT', body: { so_no: $('o-so').value, po_no: $('o-po').value, po_date: $('o-date').value,
-        value: +$('o-val').value || 0, payment_terms: $('o-pay').value, delivery_date: $('o-deliv').value } });
+        value: +$('o-val').value || 0, payment_terms: $('o-pay').value, delivery_date: $('o-deliv').value,
+        contact_name: $('o-cname').value, contact_phone: $('o-cphone').value, contact_email: $('o-cemail').value } });
       closeModal(); flash('Order updated'); renderOrders();
     } catch (e) { flash(e.message, false); } };
   }
@@ -524,14 +554,15 @@
   // ================= LOST =================
   async function renderLost() {
     const list = await api('/api/lost');
-    const total = list.reduce((a, r) => a + (r.value || 0), 0);
-    $('view').innerHTML = `<section class="card"><h2>Lost Deals <span class="muted small">(${list.length} · ${money(total)} quoted value incl. GST)</span></h2>
+    const total = list.filter(r => !r.supporting).reduce((a, r) => a + (r.value || 0), 0);
+    const nSup = list.filter(r => r.supporting).length;
+    $('view').innerHTML = `<section class="card"><h2>Lost Deals <span class="muted small">(${list.length} · ${money(total)} quoted net value excl. GST${nSup ? ` · ${nSup} supporting listed but not counted` : ''})</span></h2>
       <div class="filter-actions" style="margin-bottom:10px"><a class="btn secondary" href="/api/export/lost.xlsx">Export Excel</a></div>
       <div class="table-wrap"><table><thead><tr><th>Quote</th><th>Quoted</th><th>Lost on</th><th>Customer</th><th>End customer</th><th>Product</th><th>Type</th><th>RKZ</th><th class="num">Value</th><th>Reason</th></tr></thead>
       <tbody>${list.map(r => `<tr class="row-critical"><td><button class="link-btn" data-detail="${r.id}">${esc(r.quote_no)}${r.rev ? '-' + esc(r.rev) : ''}</button>${r.enq_no ? `<div class="muted small">${esc(r.enq_no)}</div>` : ''}</td>
         <td>${esc(r.date)}</td><td>${esc((r.lost_on || '').slice(0, 10))}</td><td class="wrap">${esc(r.customer)}</td><td class="wrap">${esc(r.end_customer || '')}</td>
         <td class="wrap">${esc(r.product || '')}</td><td>${typePill(r.type)}</td><td>${esc(r.salesperson || '—')}</td><td class="num">${inr(r.value)}</td><td class="wrap">${esc(r.lost_reason)}</td></tr>`).join('') || '<tr class="empty"><td colspan="10">No lost deals recorded</td></tr>'}</tbody></table></div>
-      <div class="muted small" style="margin-top:8px">A lost deal is a quotation marked Lost (with its reason); it has no PO or SO. Click the quotation number for full details and revisions.</div></section>`;
+      <div class="muted small" style="margin-top:8px">A lost deal is a quotation marked Lost (with its reason); it has no PO or SO. Supporting quotations are reference work and are not counted as lost business. Click the quotation number for full details and revisions.</div></section>`;
     document.querySelectorAll('[data-detail]').forEach(b => b.onclick = () => quoteDetail(+b.dataset.detail));
   }
 

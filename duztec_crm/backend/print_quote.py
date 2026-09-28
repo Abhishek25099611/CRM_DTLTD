@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from datetime import datetime, timedelta
 from html import escape
 from pathlib import Path
@@ -61,6 +62,36 @@ def inr(v: float) -> str:
     return ("-" if neg else "") + f"{s}.{int(round(frac * 100)):02d}"
 
 
+_MARK = re.compile(r"^\s*(?:\(?\d{1,2}[.):]|[-•*])\s*")   # "1." / "1)" / "(1)" / "-" / "•" at the start of a line
+
+
+def _paras(text: str) -> str:
+    """Free text -> justified paragraphs (a blank line starts a new paragraph)."""
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", (text or "").strip()) if b.strip()]
+    return "".join(f"<p class='sec'>{escape(b)}</p>" for b in blocks)
+
+
+def _terms_html(text: str) -> str:
+    """Terms & Conditions -> one numbered list. One term per line; markers the user typed ("1.", "-") are
+    stripped so numbering is always consistent; an indented line continues the previous term."""
+    items: list[str] = []
+    for raw in (text or "").splitlines():
+        if not raw.strip():
+            continue
+        if items and raw[:1].isspace() and not _MARK.match(raw):
+            items[-1] += " " + raw.strip()
+        else:
+            items.append(_MARK.sub("", raw, count=1).strip())
+    return ("<ol class='tc'>" + "".join(f"<li>{escape(t)}</li>" for t in items) + "</ol>") if items else ""
+
+
+def _legacy_terms(q: dict) -> str:
+    """Quotations from before Phase 4 kept delivery / payment / guarantee / notes as separate fields."""
+    parts = (("Delivery", q.get("delivery_terms")), ("Payment", q.get("payment_terms")),
+             ("Guarantee", q.get("guarantee")), ("", q.get("notes")))
+    return "\n".join((f"{lbl}: {v.strip()}" if lbl else v.strip()) for lbl, v in parts if (v or "").strip())
+
+
 def render(q: dict, items: list[dict], customer: dict, contact: dict | None, specs: list[dict] | None = None) -> str:
     c = SETTINGS.company
     spec_html = ""
@@ -91,35 +122,41 @@ def render(q: dict, items: list[dict], customer: dict, contact: dict | None, spe
                 f"<tr><td colspan='8' class='num lbl'>SGST</td><td class='num'>{inr(gst_amt / 2)}</td></tr>") if intra else \
                f"<tr><td colspan='8' class='num lbl'>IGST</td><td class='num'>{inr(gst_amt)}</td></tr>"
     disc_row = f"<tr><td colspan='8' class='num lbl'>Discount ({q.get('discount_pct'):g}%)</td><td class='num'>-{inr(disc)}</td></tr>" if disc else ""
-    end_cust = f"<br>End customer: {escape(customer['end_customer'])}" if customer.get("end_customer") else ""
+    sub_row = f"<tr><td colspan='8' class='num lbl'>Sub Total</td><td class='num'>{inr(sub)}</td></tr>" if disc else ""
+    ec = (q.get("end_customer") or "").strip() or (customer.get("end_customer") or "").strip()
+    end_cust = f"<br>End customer: {escape(ec)}" if ec else ""
     ref = f"{q['quote_no']}{('-' + q['rev']) if q.get('rev') else ''}"
     ct = ""
     if contact:
         who = escape(contact["name"])
         extra = " · ".join(escape(x) for x in (contact.get("designation"), contact.get("department"), contact.get("phone")) if x)
         ct = f"<br>Kind Attn: {who}" + (f" ({extra})" if extra else "")
-    intro = (q.get("introduction") or "").strip()
-    intro_html = f"<p class='sec'>{escape(intro)}</p>" if intro else ""
+    intro_html = _paras(q.get("introduction") or "")
     sections = "".join(
-        f"<h4>{title}</h4><p class='sec'>{escape(q.get(key) or '')}</p>"
-        for key, title in (("scope", "Scope of Supply"), ("warranty", "Warranty"), ("guarantee", "Guarantee"))
+        f"<h4>{title}</h4>{_paras(q.get(key) or '')}"
+        for key, title in (("scope", "Scope of Supply"), ("warranty", "Warranty"),
+                           ("additional_description", "Additional Description"))
         if (q.get(key) or "").strip())
+    terms = (q.get("terms_conditions") or "").strip() or _legacy_terms(q)
+    terms_html = f"<h4>Terms &amp; Conditions</h4>{_terms_html(terms)}" if terms else ""
     qtype = f" · {escape(q['type'])}" if q.get("type") else ""
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>Quotation {escape(ref)}</title>
 <style>
- body{{font-family:Nunito,Segoe UI,Arial,sans-serif;color:#191919;margin:32px;font-size:13px}}
- .sec{{white-space:pre-line;margin:4px 0 10px}} h4{{margin:12px 0 2px;color:#2260a4;font-size:13px;text-transform:uppercase;letter-spacing:.5px}}
- .terms td{{white-space:pre-line}}
+ body{{font-family:Nunito,Segoe UI,Arial,sans-serif;color:#191919;margin:32px;font-size:13px;line-height:1.5}}
+ p{{margin:4px 0 8px}}
+ .sec{{white-space:pre-line;margin:4px 0 8px;text-align:justify}}
+ h4{{margin:14px 0 4px;color:#2260a4;font-size:13px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #dde3ee;padding-bottom:2px}}
+ ol.tc{{margin:4px 0 10px;padding-left:26px}} ol.tc li{{margin:0 0 5px;padding-left:4px;text-align:justify}}
  .lh{{border-bottom:3px solid #a1c138;padding-bottom:10px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-end}}
  .lh img{{height:58px}} .lh small{{color:#667987;display:block;max-width:420px}}
  .qh{{text-align:right}} .qh b{{color:#2260a4;font-size:18px}}
  table{{border-collapse:collapse;width:100%;margin:10px 0}} th,td{{border:1px solid #bbb;padding:5px 8px;text-align:left;vertical-align:top}}
  th{{background:#eceff8;color:#2260a4}} td.num,th.num{{text-align:right}} td.lbl{{font-weight:bold;background:#f7f7f7}}
- .total td{{font-weight:bold;background:#f0f4e4}}
- .terms td{{border:0;padding:2px 4px;font-size:12.5px}} .terms td:first-child{{color:#667987;width:130px}}
+ .total td{{font-weight:bold;background:#f0f4e4;font-size:14px}} .incl td{{color:#556}}
+ .terms td{{border:0;padding:2px 4px;font-size:12.5px;white-space:pre-line}} .terms td:first-child{{color:#667987;width:130px}}
  .foot{{margin-top:30px;display:flex;justify-content:space-between}} .sign{{text-align:center;color:#333}}
  .sign .line{{margin-top:52px;border-top:1px solid #999;padding-top:4px}}
- .noprint{{margin-bottom:10px}} @media print{{.noprint{{display:none}} body{{margin:10mm}}}}
+ .noprint{{margin-bottom:10px}} @media print{{.noprint{{display:none}} body{{margin:10mm}} h4{{break-after:avoid}} ol.tc li{{break-inside:avoid}}}}
 </style></head><body>
 <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
 <div class="lh"><div><img src="{logo}" alt="{escape(SETTINGS.company_name)}"><small>{escape(c.get('address',''))}</small>
@@ -131,18 +168,17 @@ def render(q: dict, items: list[dict], customer: dict, contact: dict | None, spe
 <p>We are pleased to submit our offer as under:</p>
 <table><thead><tr><th class="num">#</th><th>Description</th><th>HSN</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate (₹)</th><th class="num">Net Price (₹)</th><th class="num">GST</th><th class="num">Total Price (₹)</th></tr></thead>
 <tbody>{rows}
-<tr><td colspan='8' class='num lbl'>Sub Total (net)</td><td class='num'>{inr(sub)}</td></tr>
-{disc_row}{gst_rows}
-<tr class="total"><td colspan='8' class='num'>Grand Total</td><td class='num'>₹ {inr(total)}</td></tr>
+{sub_row}{disc_row}
+<tr class="total"><td colspan='8' class='num'>Net Total (excluding GST)</td><td class='num'>₹ {inr(taxable)}</td></tr>
+{gst_rows}
+<tr class="incl"><td colspan='8' class='num lbl'>Total including GST</td><td class='num'>₹ {inr(total)}</td></tr>
 </tbody></table>
-<p><i>{escape(amount_in_words(total))}</i></p>
+<p><i>{escape(amount_in_words(taxable))} (excluding GST)</i></p>
 {spec_html}
 {sections}
+{terms_html}
 <table class="terms">
-<tr><td>Delivery</td><td>{escape(q.get('delivery_terms') or '')}</td></tr>
-<tr><td>Payment</td><td>{escape(q.get('payment_terms') or '')}</td></tr>
-<tr><td>Validity</td><td>{q.get('validity_days')} days from quotation date</td></tr>
-<tr><td>Notes</td><td>{escape(q.get('notes') or '')}</td></tr>
+<tr><td>Validity</td><td>{q.get('validity_days')} days from the date of this quotation{(' (till ' + valid_till + ')') if valid_till else ''}</td></tr>
 <tr><td>Bank details</td><td>{escape(c.get('bank_details') or '')}</td></tr>
 </table>
 <div class="foot"><div>Thanking you,<br>Yours faithfully,</div>

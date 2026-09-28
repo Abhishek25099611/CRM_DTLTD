@@ -177,6 +177,7 @@ body.role-viewer [data-write]{display:none!important}
 .detail-grid .val{font-size:14px;white-space:pre-line}
 .detail-section{margin-top:14px;padding-top:10px;border-top:1px solid var(--line)}
 .detail-section h3{margin:0 0 6px}
+ol.tc{margin:4px 0 6px;padding-left:24px;font-size:13.5px}ol.tc li{margin:0 0 4px;padding-left:4px;line-height:1.45}
 .link-btn{background:none;border:0;color:var(--brand);font-weight:700;cursor:pointer;padding:0;font:inherit;text-decoration:underline}
 @media(max-width:700px){.detail-grid{grid-template-columns:1fr}}
 

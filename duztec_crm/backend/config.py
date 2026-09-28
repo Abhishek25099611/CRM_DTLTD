@@ -25,6 +25,7 @@ class Settings:
     numbering: dict[str, Any] = field(default_factory=dict)
     quotation_defaults: dict[str, Any] = field(default_factory=dict)
     enquiry_types: list[str] = field(default_factory=lambda: ["Normal", "Tender", "Budgetary", "Supporting", "Repeat Order"])
+    quotation_types: list[str] = field(default_factory=lambda: ["Tender", "Technical", "Supporting", "Other"])
     state_keywords: dict[str, str] = field(default_factory=dict)
     pincode_keywords: dict[str, str] = field(default_factory=dict)
     auth: dict[str, Any] = field(default_factory=dict)
@@ -82,6 +83,7 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
     s.numbering = raw.get("numbering") or {}
     s.quotation_defaults = raw.get("quotation_defaults") or {}
     s.enquiry_types = [str(x) for x in (raw.get("enquiry_types") or s.enquiry_types)]
+    s.quotation_types = [str(x) for x in (raw.get("quotation_types") or s.quotation_types)]
     s.state_keywords = {str(k).lower(): str(v) for k, v in ((raw.get("geo") or {}).get("state_keywords") or {}).items()}
     s.pincode_keywords = {str(k).lower(): str(v) for k, v in ((raw.get("geo") or {}).get("pincode_keywords") or {}).items()}
     s.auth = raw.get("auth") or {}

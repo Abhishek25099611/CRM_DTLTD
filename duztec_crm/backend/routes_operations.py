@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from . import auth, db
 from .schemas import AssignRkzIn, FollowupIn, OrderEditIn, StatusIn
-from .services import _is_admin, _q_totals, _scope
+from .services import SUPPORTING, _is_admin, _q_totals, _scope
 
 router = APIRouter()
 
@@ -101,7 +101,7 @@ def orders(request: Request):
     sc = _scope(request)
     con = db.connect()
     w = " WHERE (o.responsible=? OR q.salesperson=?)" if sc else ""
-    out = db.rows(con.execute(f"""SELECT o.*, c.name customer, q.quote_no, q.rev quote_rev,
+    out = db.rows(con.execute(f"""SELECT o.*, c.name customer, q.quote_no, q.rev quote_rev, q.type quote_type,
                                  q.delivery_terms quote_delivery_terms FROM orders o
                                  JOIN customers c ON c.id=o.customer_id
                                  LEFT JOIN quotations q ON q.id=o.quotation_id{w} ORDER BY o.id DESC""",
@@ -113,13 +113,15 @@ def orders(request: Request):
 def _lost_rows(con, sc):
     Q = " AND q.salesperson=?" if sc else ""
     rows = db.rows(con.execute(f"""SELECT q.id, q.quote_no, q.rev, q.date, q.updated_at lost_on, q.lost_reason, q.salesperson,
-                                   q.type, q.enquiry_id, c.name customer, c.end_customer, c.state,
+                                   q.type, q.enquiry_id, c.name customer, c.state,
+                                   COALESCE(NULLIF(q.end_customer,''), c.end_customer) end_customer,
                                    (SELECT description FROM quotation_items i WHERE i.quotation_id=q.id ORDER BY sr LIMIT 1) product,
                                    (SELECT enq_no FROM enquiries e WHERE e.id=q.enquiry_id) enq_no
                                    FROM quotations q JOIN customers c ON c.id=q.customer_id
                                    WHERE q.status='lost'{Q} ORDER BY q.updated_at DESC""", (sc,) if sc else ()))
     for r in rows:
-        r["value"] = _q_totals(con, r["id"])["total"]
+        r["value"] = _q_totals(con, r["id"])["net"]          # net, excl. GST
+        r["supporting"] = (r["type"] or "") == SUPPORTING    # listed, but not counted as lost business
     return rows
 
 
@@ -144,9 +146,10 @@ def edit_order(oid: int, body: OrderEditIn, request: Request):
     if sc and sc not in ((o["responsible"] or "").upper(), (o["salesperson"] or "").upper()):
         con.close(); raise HTTPException(403, {"error_type": "forbidden", "detail": "This order belongs to another RKZ code."})
     con.execute("""UPDATE orders SET po_no=?, so_no=?, po_date=?, value=COALESCE(NULLIF(?,0), value),
-                   payment_terms=?, delivery_date=? WHERE id=?""",
+                   payment_terms=?, delivery_date=?, contact_name=?, contact_phone=?, contact_email=? WHERE id=?""",
                 (body.po_no.strip(), body.so_no.strip(), body.po_date.strip(), body.value,
-                 body.payment_terms.strip(), body.delivery_date.strip(), oid))
+                 body.payment_terms.strip(), body.delivery_date.strip(), body.contact_name.strip(),
+                 body.contact_phone.strip(), body.contact_email.strip(), oid))
     db.log_activity(con, "order", oid, "edited", f"SO {body.so_no.strip() or '-'} · PO {body.po_no.strip() or '-'}")
     con.commit(); con.close()
     return {"ok": True}
@@ -161,9 +164,9 @@ def export(register: str, request: Request):
     Q = " AND q.salesperson=?" if sc else ""
     O = " AND (o.responsible=? OR q.salesperson=?)" if sc else ""
     queries = {
-        "enquiries": (f"SELECT e.enq_no,e.date,e.source,c.name customer,e.system,e.requirement,e.expected_value,e.salesperson,e.priority enquiry_type,e.status FROM enquiries e JOIN customers c ON c.id=e.customer_id WHERE 1=1{E} ORDER BY e.id", (sc,) if sc else ()),
-        "quotations": (f"SELECT q.quote_no,q.rev,q.date,c.name customer,q.type,q.status,q.lost_reason,q.salesperson,q.payment_terms FROM quotations q JOIN customers c ON c.id=q.customer_id WHERE q.status!='superseded'{Q} ORDER BY q.id", (sc,) if sc else ()),
-        "orders": (f"SELECT o.po_no,o.so_no,o.po_date,c.name customer,q.quote_no,o.system,o.value,o.responsible,o.payment_terms,o.delivery_date FROM orders o JOIN customers c ON c.id=o.customer_id LEFT JOIN quotations q ON q.id=o.quotation_id WHERE 1=1{O} ORDER BY o.id", (sc, sc) if sc else ()),
+        "enquiries": (f"SELECT e.enq_no,e.date,e.source,c.name customer,e.system,e.requirement,e.technical,e.expected_value,e.salesperson,e.priority enquiry_type,e.status FROM enquiries e JOIN customers c ON c.id=e.customer_id WHERE 1=1{E} ORDER BY e.id", (sc,) if sc else ()),
+        "quotations": (f"SELECT q.id,q.quote_no,q.rev,q.date,c.name customer,COALESCE(NULLIF(q.end_customer,''),c.end_customer) end_customer,q.type project_spec,q.status,q.lost_reason,q.salesperson FROM quotations q JOIN customers c ON c.id=q.customer_id WHERE q.status!='superseded'{Q} ORDER BY q.id", (sc,) if sc else ()),
+        "orders": (f"SELECT o.po_no,o.so_no,o.po_date,c.name customer,q.quote_no,o.system,o.value,o.responsible,o.contact_name,o.contact_phone,o.contact_email,o.delivery_date,o.payment_terms FROM orders o JOIN customers c ON c.id=o.customer_id LEFT JOIN quotations q ON q.id=o.quotation_id WHERE 1=1{O} ORDER BY o.id", (sc, sc) if sc else ()),
         "customers": ("SELECT name,gstin,address,state,pincode,segment FROM customers ORDER BY name", ()),
         "contacts": ("SELECT c.name customer,ct.name,ct.designation,ct.department,ct.phone,ct.email FROM contacts ct JOIN customers c ON c.id=ct.customer_id ORDER BY c.name, ct.name", ()),
     }
@@ -181,6 +184,10 @@ def export(register: str, request: Request):
             con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": register})
         sql2, args3 = queries[register]
         data = db.rows(con.execute(sql2, args3))
+        if register == "quotations":      # values are computed from line items, not stored
+            for r in data:
+                t = _q_totals(con, r.pop("id"))
+                r["net_value_excl_gst"], r["gst"], r["total_incl_gst"] = t["net"], t["gst"], t["total"]
         con.close()
     wb = openpyxl.Workbook(); ws = wb.active; ws.title = register
     if data:

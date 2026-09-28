@@ -34,6 +34,7 @@ class EnquiryIn(BaseModel):
     expected_value: float = 0
     salesperson: str = ""
     priority: str = "Normal"   # holds the Enquiry Type (Normal/Tender/Budgetary/Supporting/Repeat Order)
+    technical: str = ""        # important technical requirement / consideration for this enquiry
 
 
 class ItemIn(BaseModel):
@@ -71,16 +72,20 @@ class QuotationIn(BaseModel):
     contact_id: int | None = None
     date: str = ""
     validity_days: int = 0
-    delivery_terms: str = ""
-    payment_terms: str = ""
-    notes: str = ""
     gst_mode: str = "intra"
     discount_pct: float = 0
     salesperson: str = ""
-    type: str = ""            # Enquiry Type carried onto the quotation
+    type: str = ""            # Project specification: Tender / Technical / Supporting / Other (config quotation_types)
+    end_customer: str = ""    # per quotation; pre-filled from the customer master
     introduction: str = ""
     scope: str = ""
     warranty: str = ""
+    additional_description: str = ""
+    terms_conditions: str = ""   # one term per line; numbered on the print
+    # retired fields (pre-Phase-4 quotations still carry them; accepted so old drafts can be re-saved)
+    delivery_terms: str = ""
+    payment_terms: str = ""
+    notes: str = ""
     guarantee: str = ""
     items: list[ItemIn] = []
 
@@ -106,6 +111,7 @@ class StatusIn(BaseModel):
     so_no: str = ""
     po_date: str = ""
     value: float = 0
+    delivery_date: str = ""   # expected / committed delivery, captured when marking Won
 
 
 class OrderEditIn(BaseModel):
@@ -115,3 +121,6 @@ class OrderEditIn(BaseModel):
     value: float = 0
     payment_terms: str = ""
     delivery_date: str = ""
+    contact_name: str = ""
+    contact_phone: str = ""
+    contact_email: str = ""

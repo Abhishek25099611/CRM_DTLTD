@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS enquiries(
   id INTEGER PRIMARY KEY, enq_no TEXT NOT NULL UNIQUE, date TEXT NOT NULL, source TEXT DEFAULT '',
   customer_id INTEGER NOT NULL REFERENCES customers(id), contact_id INTEGER REFERENCES contacts(id),
   requirement TEXT DEFAULT '', system TEXT DEFAULT '', expected_value REAL DEFAULT 0,
-  salesperson TEXT DEFAULT '', priority TEXT DEFAULT 'Normal',
+  salesperson TEXT DEFAULT '', priority TEXT DEFAULT 'Normal', technical TEXT DEFAULT '',
   status TEXT NOT NULL DEFAULT 'new',   -- new/qualified/quoted/won/lost/dropped
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS quotations(
@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS quotations(
   lost_reason TEXT DEFAULT '', salesperson TEXT DEFAULT '',
   legacy_probability TEXT DEFAULT '', month TEXT DEFAULT '', type TEXT DEFAULT '',
   introduction TEXT DEFAULT '', scope TEXT DEFAULT '', warranty TEXT DEFAULT '', guarantee TEXT DEFAULT '',
+  end_customer TEXT DEFAULT '', additional_description TEXT DEFAULT '', terms_conditions TEXT DEFAULT '',
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
   UNIQUE(quote_no, rev));
 CREATE TABLE IF NOT EXISTS quotation_items(
@@ -49,7 +50,8 @@ CREATE TABLE IF NOT EXISTS orders(
   customer_id INTEGER NOT NULL REFERENCES customers(id), po_no TEXT DEFAULT '', so_no TEXT DEFAULT '',
   po_date TEXT DEFAULT '', value REAL DEFAULT 0, month TEXT DEFAULT '',
   responsible TEXT DEFAULT '', system TEXT DEFAULT '', payment_terms TEXT DEFAULT '',
-  delivery_date TEXT DEFAULT '', created_at TEXT NOT NULL);
+  delivery_date TEXT DEFAULT '', contact_name TEXT DEFAULT '', contact_phone TEXT DEFAULT '',
+  contact_email TEXT DEFAULT '', created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS activity(
   id INTEGER PRIMARY KEY, at TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER,
   action TEXT NOT NULL, detail TEXT DEFAULT '');
@@ -98,6 +100,14 @@ MIGRATIONS = [
     ("quotations", "sent_at", "TEXT DEFAULT ''"),        # first time the quotation was marked Sent (48-h SLA)
     ("customers", "end_customer", "TEXT DEFAULT ''"),    # e.g. LIPL supplying JSW Dolvi
     ("quotation_items", "product_id", "INTEGER"),        # link to the Products master (specifications on print)
+    # Phase 4
+    ("enquiries", "technical", "TEXT DEFAULT ''"),
+    ("quotations", "end_customer", "TEXT DEFAULT ''"),
+    ("quotations", "additional_description", "TEXT DEFAULT ''"),
+    ("quotations", "terms_conditions", "TEXT DEFAULT ''"),
+    ("orders", "contact_name", "TEXT DEFAULT ''"),
+    ("orders", "contact_phone", "TEXT DEFAULT ''"),
+    ("orders", "contact_email", "TEXT DEFAULT ''"),
 ]
 
 

@@ -9,7 +9,8 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from . import auth, db, print_quote
 from .config import LOGGER, SETTINGS
 from .schemas import (AssignRkzIn, ContactIn, CustomerIn, EnquiryIn, FollowupIn, ItemIn, QuotationIn, StatusIn)
-from .services import INDIAN_STATES, _check_quote_access, _geo_state, _q_totals, _quote_row, _scope, pincode_coords, sla_for
+from .services import (INDIAN_STATES, NOT_SUPPORTING, SUPPORTING, _check_quote_access, _geo_state, _q_totals, _quote_row,
+                       _scope, pincode_coords, sla_for)
 
 router = APIRouter()
 
@@ -22,7 +23,8 @@ def health():
 def config():
     return {"company_name": SETTINGS.company_name, "tagline": SETTINGS.tagline,
             "quotation_defaults": SETTINGS.quotation_defaults, "company": SETTINGS.company,
-            "enquiry_types": SETTINGS.enquiry_types, "states": INDIAN_STATES}
+            "enquiry_types": SETTINGS.enquiry_types, "quotation_types": SETTINGS.quotation_types,
+            "states": INDIAN_STATES}
 
 
 @router.get("/api/summary")
@@ -37,15 +39,20 @@ def summary(request: Request):
     stale = con.execute(f"""SELECT COUNT(*) n FROM enquiries WHERE status IN ('new','qualified')
                            AND updated_at < datetime('now','-7 day'){E}""", a).fetchone()["n"]
     quotes = db.rows(con.execute(f"SELECT status, COUNT(*) n FROM quotations q WHERE status!='superseded'{Q} GROUP BY status", a))
+    # Every ₹ figure is the NET value (after discount, before GST). Supporting quotations — reference work
+    # given as assistance — are left out of pipeline, won, lost and win rate altogether.
+    NS = NOT_SUPPORTING
+    supporting = con.execute(f"SELECT COUNT(*) n FROM quotations q WHERE status!='superseded' AND q.type=?{Q}",
+                             (SUPPORTING, *a)).fetchone()["n"]
     pipeline = 0.0
-    for r in con.execute(f"SELECT id FROM quotations q WHERE status IN ('sent','draft'){Q}", a):
-        pipeline += _q_totals(con, r["id"])["total"]
-    won = con.execute(f"SELECT COUNT(*) n FROM quotations q WHERE status='won'{Q}", a).fetchone()["n"]
-    lost = con.execute(f"SELECT COUNT(*) n FROM quotations q WHERE status='lost'{Q}", a).fetchone()["n"]
-    # Lost deals have no order, so their value is the quoted total (GST-inclusive, same basis as pipeline).
-    lost_value = sum(_q_totals(con, r["id"])["total"]
-                     for r in con.execute(f"SELECT id FROM quotations q WHERE status='lost'{Q}", a))
-    o_where = " WHERE (o.responsible=? OR q.salesperson=?)" if sc else ""
+    for r in con.execute(f"SELECT id FROM quotations q WHERE status IN ('sent','draft'){Q}{NS}", a):
+        pipeline += _q_totals(con, r["id"])["net"]
+    won = con.execute(f"SELECT COUNT(*) n FROM quotations q WHERE status='won'{Q}{NS}", a).fetchone()["n"]
+    lost = con.execute(f"SELECT COUNT(*) n FROM quotations q WHERE status='lost'{Q}{NS}", a).fetchone()["n"]
+    # Lost deals have no order, so their value is the quoted net value (same basis as pipeline).
+    lost_value = sum(_q_totals(con, r["id"])["net"]
+                     for r in con.execute(f"SELECT id FROM quotations q WHERE status='lost'{Q}{NS}", a))
+    o_where = " WHERE COALESCE(q.type,'')!='Supporting'" + (" AND (o.responsible=? OR q.salesperson=?)" if sc else "")
     orders = con.execute(f"""SELECT COUNT(*) n, COALESCE(SUM(o.value),0) v FROM orders o
                              LEFT JOIN quotations q ON q.id=o.quotation_id{o_where}""",
                          (sc, sc) if sc else ()).fetchone()
@@ -78,12 +85,13 @@ def summary(request: Request):
     for r in con.execute(f"SELECT substr(date,1,7) m FROM enquiries WHERE 1=1{E}", a):
         if r["m"] in series:
             series[r["m"]]["enquiries"] += 1
-    for r in con.execute(f"SELECT id, substr(date,1,7) m, status FROM quotations q WHERE status!='superseded'{Q}", a):
+    for r in con.execute(f"SELECT id, substr(date,1,7) m, status, type FROM quotations q WHERE status!='superseded'{Q}", a):
         if r["m"] in series:
             series[r["m"]]["quotations"] += 1
-            series[r["m"]]["quotation_value"] += _q_totals(con, r["id"])["total"]
-            if r["status"] == "won":
-                series[r["m"]]["won"] += 1
+            if (r["type"] or "") != SUPPORTING:
+                series[r["m"]]["quotation_value"] += _q_totals(con, r["id"])["net"]
+                if r["status"] == "won":
+                    series[r["m"]]["won"] += 1
     for r in con.execute(f"""SELECT o.value v, substr(COALESCE(NULLIF(o.po_date,''), o.created_at),1,7) m FROM orders o
                              LEFT JOIN quotations q ON q.id=o.quotation_id{o_where}""", (sc, sc) if sc else ()):
         if r["m"] in series:
@@ -100,7 +108,7 @@ def summary(request: Request):
             "win_rate_count": round(100 * orders["n"] / decided_n, 1) if decided_n else 0.0,
             "win_rate_value": round(100 * won_value / (won_value + lost_value), 1) if (won_value + lost_value) else 0.0,
             "monthly_quotes": monthly, "monthly": monthly_series, "recent": recent, "today": today, "sla": sla,
-            "scope_rkz": sc}
+            "scope_rkz": sc, "supporting_excluded": supporting, "value_basis": "net"}
 
 
 @router.get("/api/geo")
@@ -122,9 +130,9 @@ def geo(request: Request):
     a = (sc,) if sc else ()
     for r in con.execute(f"""SELECT e.expected_value v, c.state, c.name FROM enquiries e JOIN customers c ON c.id=e.customer_id WHERE 1=1{E}""", a):
         add("enquiries", r["state"], r["v"], r["name"])
-    for r in con.execute(f"""SELECT q.id, c.state, c.name FROM quotations q JOIN customers c ON c.id=q.customer_id
+    for r in con.execute(f"""SELECT q.id, q.type, c.state, c.name FROM quotations q JOIN customers c ON c.id=q.customer_id
                             WHERE q.status!='superseded'{Q}""", a):
-        add("offers", r["state"], _q_totals(con, r["id"])["total"], r["name"])
+        add("offers", r["state"], 0.0 if (r["type"] or "") == SUPPORTING else _q_totals(con, r["id"])["net"], r["name"])
     o_and = " AND (o.responsible=? OR q.salesperson=?)" if sc else ""
     for r in con.execute(f"""SELECT o.value v, c.state, c.name FROM orders o JOIN customers c ON c.id=o.customer_id
                              LEFT JOIN quotations q ON q.id=o.quotation_id WHERE 1=1{o_and}""",
@@ -149,9 +157,9 @@ def geo(request: Request):
     for r in con.execute(f"""SELECT e.expected_value v, c.pincode pin, c.name FROM enquiries e
                              JOIN customers c ON c.id=e.customer_id WHERE 1=1{E}""", a):
         addp("enquiries", r["pin"], r["name"], r["v"])
-    for r in con.execute(f"""SELECT q.id, c.pincode pin, c.name FROM quotations q JOIN customers c ON c.id=q.customer_id
+    for r in con.execute(f"""SELECT q.id, q.type, c.pincode pin, c.name FROM quotations q JOIN customers c ON c.id=q.customer_id
                              WHERE q.status!='superseded'{Q}""", a):
-        addp("offers", r["pin"], r["name"], _q_totals(con, r["id"])["total"])
+        addp("offers", r["pin"], r["name"], 0.0 if (r["type"] or "") == SUPPORTING else _q_totals(con, r["id"])["net"])
     for r in con.execute(f"""SELECT o.value v, c.pincode pin, c.name FROM orders o JOIN customers c ON c.id=o.customer_id
                              LEFT JOIN quotations q ON q.id=o.quotation_id WHERE 1=1{o_and}""",
                          (sc, sc) if sc else ()):

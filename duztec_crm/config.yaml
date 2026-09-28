@@ -20,15 +20,25 @@ numbering:
   quote_pad: 5
   quote_start: 493             # first quotation number on a fresh database (never goes below this)
 
-enquiry_types: [Normal, Tender, Budgetary, Supporting, Repeat Order]   # "Enquiry Type" on the form; copied to the quotation
+enquiry_types: [Normal, Tender, Budgetary, Supporting, Repeat Order]   # "Enquiry Type" on the enquiry form
+
+# "Project specification" on the quotation. Tender / Supporting enquiries keep their type; every other
+# enquiry type starts as "Other". Supporting quotations are reference work: excluded from every ₹ figure.
+quotation_types: [Tender, Technical, Supporting, Other]
 
 quotation_defaults:
   validity_days: 30
   gst_pct: 18
-  delivery_terms: "8-10 weeks from technically & commercially clear PO"
-  payment_terms: "50% advance, 50% before dispatch"
-  notes: "Freight, transit insurance and unloading at site are in buyer's scope unless stated."
   # Pre-filled text sections; edit per quotation. Multi-line text is allowed (use | in YAML).
+  # Terms & Conditions: one term per line — the print numbers them automatically.
+  terms_conditions: |
+    Prices are ex-works Thane, exclusive of GST, which will be charged extra at the prevailing rate.
+    Delivery: 8-10 weeks from the date of a technically and commercially clear purchase order.
+    Payment: 50% advance along with the purchase order; balance 50% before dispatch.
+    Freight, transit insurance and unloading at site are in the buyer's scope unless stated otherwise.
+    Civil work, power and water supply at site, and any item not expressly listed are excluded.
+    Installation and commissioning, where quoted, are subject to site readiness by the buyer.
+  additional_description: ""
   introduction: |
     Duztec Engineering Pvt. Ltd. designs and manufactures dust-suppression and industrial cleaning systems
     for steel, cement, mining and power plants across India. We thank you for your enquiry and are pleased
@@ -40,9 +50,6 @@ quotation_defaults:
   warranty: |
     12 months from the date of commissioning or 18 months from the date of dispatch, whichever is earlier,
     against manufacturing defects. Consumables and damage due to misuse are not covered.
-  guarantee: |
-    Performance as per the agreed technical specification, subject to operation within the stated design
-    parameters and site conditions.
 
 uploads:                          # customer documents, PO PDFs, quotation attachments
   max_mb: 25

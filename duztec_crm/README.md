@@ -71,10 +71,24 @@ On the server the CRM runs unattended via Task Scheduler (`run_crm_service.bat`)
   Admins assign RKZ to old records via the ✎ buttons (dropdown of active users' codes) and can
   view login/logout history from the Users tab.
 - **Enquiry Type** (Normal / Tender / Budgetary / Supporting / Repeat Order) lives in the
-  enquiries `priority` column, is validated against `config.yaml → enquiry_types`, and is copied
-  onto the quotation `type`.
-- **Quotation text sections** (introduction, scope, warranty, guarantee) are pre-filled from
-  `quotation_defaults` and printed on the letterhead; delivery/payment terms are multi-line.
+  enquiries `priority` column and is validated against `config.yaml → enquiry_types`. The
+  **Technical** field (`enquiries.technical`) holds the important technical requirement.
+- **Project specification** = the quotation `type`, from `config.yaml → quotation_types`
+  (Tender / Technical / Supporting / Other). A quotation created from a Tender or Supporting
+  enquiry keeps that type; every other enquiry type starts as Other. The Quotations tab filters
+  by it (`GET /api/quotations?type=`). Pre-Phase-4 values (Normal, Budgetary…) stay as they are.
+- **Supporting quotations** are reference work: `services.NOT_SUPPORTING` keeps them (and orders
+  raised from them) out of pipeline, won, lost, win rate, monthly value series, map values and
+  quotation-value targets. They still appear in the registers with a Supporting pill.
+- **Net value is the primary figure everywhere** (`_q_totals()["net"]` = after discount, before
+  GST): list columns, dashboard KPIs, Lost tab, targets, exports. On Won the order value defaults
+  to the net value. The print shows "Net Total (excluding GST)" highlighted, then GST rows and
+  "Total including GST" in a lighter row; the amount in words is the net figure.
+- **Quotation text sections** are introduction, scope, warranty, additional description and
+  **Terms & Conditions** (one term per line; `print_quote._terms_html` numbers them and strips any
+  "1." / "-" the user typed). Defaults come from `quotation_defaults`. The retired fields
+  (delivery_terms, payment_terms, notes, guarantee) stay in the table: an old quotation prints
+  them folded into the T&C list, and editing it moves them into `terms_conditions`.
 - **Documents**: files attach to customers, enquiries, quotations and orders (`routes_documents.py`);
   stored under `data/uploads/<entity>/<id>/`, metadata in the `documents` table, served only to
   logged-in users and subject to RKZ scope. Limits/categories in `config.yaml → uploads`.
@@ -82,10 +96,13 @@ On the server the CRM runs unattended via Task Scheduler (`run_crm_service.bat`)
 - **48-hour SLA**: `services.working_hours_between` counts Mon–Sat 09:00–18:00 (`config.yaml → sla`)
   from enquiry punch-in (`created_at`) to the first `quotations.sent_at`; badges on enquiry cards,
   KPI tile on the dashboard.
-- **End customer** lives on the customer master (`customers.end_customer`) and is shown on
-  enquiries, quotations (printed), orders and the Lost tab.
-- **Net / Total price** on the print: Net = qty × rate (before GST), Total = Net + GST; discount
-  applies in the totals block only (Duztec's chosen definition).
+- **End customer** lives on the customer master (`customers.end_customer`) and is copied onto
+  each quotation (`quotations.end_customer`, editable per quotation, printed under the address).
+  Lists show the quotation's value, falling back to the master.
+- **Net / Total price per line** on the print: Net = qty × rate (before GST), Total = Net + GST;
+  discount applies in the totals block only (Duztec's chosen definition).
+- **Orders** carry the contact person (`contact_name/phone/email`, copied from the quotation's
+  contact on Won, editable) and `delivery_date` (asked for when marking Won; shown red once past).
 - **Products master** (`routes_products.py`): code/name/HSN/unit/default rate/specification; seeded
   once from `config.yaml → products_seed` while empty; quotation lines link via
   `quotation_items.product_id` and the print adds a "Technical Specifications" block. Retire, never
