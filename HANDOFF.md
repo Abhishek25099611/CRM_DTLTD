@@ -179,18 +179,61 @@ Use a systemd unit instead of Task Scheduler (§8).
 
 ---
 
-## 6. Email (SMTP) configuration — required for real users
+## 6. Email configuration — required for real users
 
-Until SMTP is configured the app still works, but login codes go only to the server log —
-meaning **only someone with access to the server can log in**. Configure it before rollout.
+Until outgoing mail works the app still runs, but login codes go only to the server log —
+meaning **only someone with access to the server can set or reset a password**. Configure it
+before rollout. There are two transports (`backend/mailer.py`), selected by `auth.mail.method`
+in `config.local.yaml`:
 
-### 6.1 Settings
-Edit `config.local.yaml`:
+| Method | How it sends | When to use |
+|---|---|---|
+| `graph` | Microsoft Graph `sendMail` over HTTPS (port 443) with an Entra app registration | **Duztec's server** — duztec.in is on Microsoft 365, the tenant has SMTP AUTH disabled and the Airtel line blocks port 25 (see `EMAIL_OTP_ISSUE.md`) |
+| `smtp` (default) | `smtplib`, STARTTLS on 587 or implicit SSL on 465 | Any provider that still allows password SMTP (Zoho, Google Workspace app password, cPanel) |
+
+### 6.1 Microsoft Graph — one-time setup by a Microsoft 365 admin (about 15 minutes)
+1. Sign in at **entra.microsoft.com** as a duztec.in Global Administrator → *App registrations* →
+   **New registration**: name `Duztec CRM Mailer`, *Accounts in this organizational directory only*,
+   no redirect URI → Register.
+2. On the app's **Overview** page copy the **Application (client) ID** and the **Directory (tenant) ID**.
+3. **API permissions** → Add a permission → Microsoft Graph → **Application permissions** →
+   `Mail.Send` → Add. Then click **Grant admin consent for duztec.in** (status must show a green tick).
+4. **Certificates & secrets** → New client secret → description `CRM server`, expiry 24 months →
+   Add → copy the **Value** column immediately (it is shown once; the *Secret ID* is not it).
+   Put a reminder in the calendar to rotate it before it expires.
+5. Restrict the app to the one sending mailbox (by default `Mail.Send` can send as *any* mailbox).
+   In Exchange Online PowerShell (`Connect-ExchangeOnline`):
+   ```powershell
+   New-ApplicationAccessPolicy -AppId <client id> -PolicyScopeGroupId server@duztec.in `
+       -AccessRight RestrictAccess -Description "Duztec CRM may send only as server@duztec.in"
+   Test-ApplicationAccessPolicy -AppId <client id> -Identity server@duztec.in     # expect AccessCheckResult: Granted
+   ```
+   (Policies take up to 30 minutes to apply.)
+6. Hand the three values to whoever edits the server's `config.local.yaml`:
 ```yaml
 auth:
+  mail:
+    method: "graph"
+    graph:
+      tenant_id: "<Directory (tenant) ID>"
+      client_id: "<Application (client) ID>"
+      client_secret: "<secret VALUE — keep the double quotes>"
+      sender: "server@duztec.in"          # must be a licensed mailbox in the tenant
+```
+   Environment variables work too and keep the secret out of files: `DUZTEC_MAIL_METHOD=graph`,
+   `DUZTEC_GRAPH_TENANT_ID`, `DUZTEC_GRAPH_CLIENT_ID`, `DUZTEC_GRAPH_CLIENT_SECRET`, `DUZTEC_GRAPH_SENDER`.
+
+No extra Python packages are needed; the transport uses the standard library. The access token is
+cached in memory and refreshed automatically. Sent mail is not saved to the mailbox's Sent Items.
+
+### 6.2 SMTP (other providers)
+```yaml
+auth:
+  mail:
+    method: "smtp"        # or leave auth.mail out entirely
   smtp:
     host: "smtp.zoho.in"
-    port: 587
+    port: 587             # 465 = implicit SSL, anything else = STARTTLS
     username: "office@duztec.in"
     password: "<app-specific password>"
     from_addr: "Duztec CRM <office@duztec.in>"
@@ -199,28 +242,28 @@ auth:
 | Provider | host | port | Notes |
 |---|---|---|---|
 | Zoho Mail (India) | `smtp.zoho.in` | 587 | App-specific password required when 2FA is on |
-| Zoho Mail (global) | `smtp.zoho.com` | 587 | |
 | Google Workspace | `smtp.gmail.com` | 587 | Requires an App Password (2-Step Verification on) |
-| Microsoft 365 | `smtp.office365.com` | 587 | "Authenticated SMTP" must be enabled for the mailbox |
+| Microsoft 365 | `smtp.office365.com` | 587 | Only if an admin enables "Authenticated SMTP" — Microsoft is retiring this; prefer `graph` |
 | cPanel / shared hosting | `mail.duztec.in` | 587 or 465 | |
 
-**Port rule:** 465 = implicit SSL, anything else (normally 587) = STARTTLS. Both are supported.
-
-Prefer an environment variable to keep the password out of files entirely:
 `DUZTEC_SMTP_PASSWORD=...` overrides whatever is in the YAML.
 
-### 6.2 Test it *before* announcing the app
+### 6.3 Test it *before* announcing the app
 From `duztec_crm` with the venv active:
 ```
 .venv\Scripts\python -m backend.check_smtp yourname@duztec.in
 ```
-It prints the effective settings, sends a test message, and on failure lists the likely cause
-(wrong port, app-password needed, SMTP AUTH disabled, firewall). Restart the app after changing
-config so it picks the new values up, then do one real *First login / Forgot password* to confirm end-to-end.
+It prints the active method and the effective settings (secret masked), fetches a Graph token
+when applicable, sends a test message, and on failure translates the provider's error code into
+what to fix (wrong secret, missing admin consent, unlicensed sender, SMTP AUTH disabled…). Restart
+the app after changing `config.local.yaml`, then do one real *First login / Forgot password* to
+confirm end-to-end — the login card must say *"Code sent to your email."*, not the message about
+the server log.
 
-### 6.3 Deliverability
-Send from a real mailbox on your own domain (`office@duztec.in`), not a spoofed address, so
-SPF/DKIM already pass. Tell users to check spam on the first login.
+### 6.4 Deliverability
+Send from a real mailbox on your own domain (`server@duztec.in`), so SPF/DKIM already pass.
+Graph sends through Microsoft's own infrastructure, so the server's IP reputation does not matter.
+Tell users to check Junk on the first login.
 
 ---
 

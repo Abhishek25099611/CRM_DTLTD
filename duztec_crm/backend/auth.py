@@ -4,14 +4,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-import smtplib
 from datetime import datetime, timedelta
-from email.message import EmailMessage
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from . import db
+from . import db, mailer
 from .config import LOGGER, SETTINGS
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -119,27 +117,18 @@ def init() -> None:
 
 
 def send_mail(to_addr: str, subject: str, body: str) -> bool:
-    """Send one message. Returns False when SMTP is not configured.
+    """Send one message through the configured transport (auth.mail.method: smtp | graph).
 
-    Port 465 uses implicit SSL; anything else (typically 587) uses STARTTLS.
+    Returns False when nothing is configured; raises on failure — callers log the code and carry on.
     """
-    smtp = SETTINGS.auth.get("smtp") or {}
-    host = str(smtp.get("host") or "").strip()
-    if not host:
+    if mailer.method() == "graph":
+        if not mailer.graph_configured():
+            return False
+        mailer.graph_send(to_addr, subject, body)
+        return True
+    if not mailer.smtp_configured():
         return False
-    port = int(smtp.get("port", 587))
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = smtp.get("from_addr") or smtp.get("username") or f"crm@{_domain()}"
-    msg["To"] = to_addr
-    msg.set_content(body)
-    cls = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
-    with cls(host, port, timeout=30) as srv:
-        if port != 465:
-            srv.starttls()
-        if smtp.get("username"):
-            srv.login(smtp["username"], smtp.get("password", ""))
-        srv.send_message(msg)
+    mailer.smtp_send(to_addr, subject, body, default_from=f"crm@{_domain()}")
     return True
 
 
@@ -151,10 +140,12 @@ def _send_otp(email: str, code: str) -> bool:
     try:
         sent = send_mail(email, f"Duztec CRM verification code: {code}", body)
     except Exception as e:  # noqa: BLE001 - a mail failure must never block login
-        LOGGER.error("SMTP send failed for %s (%s: %s) — LOGIN OTP: %s", email, type(e).__name__, e, code)
+        LOGGER.error("Mail send failed via %s for %s (%s: %s) — LOGIN OTP: %s", mailer.method(), email,
+                     type(e).__name__, e, code)
         return False
     if not sent:
-        LOGGER.warning("SMTP not configured — LOGIN OTP for %s: %s (valid %d min)", email, code, minutes)
+        LOGGER.warning("Mail not configured (auth.mail.method=%s) — LOGIN OTP for %s: %s (valid %d min)",
+                       mailer.method(), email, code, minutes)
     return sent
 
 

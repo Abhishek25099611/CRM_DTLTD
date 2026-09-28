@@ -1,5 +1,12 @@
 # Email OTP delivery failure on the production server — brief for the development machine
 
+> **Update 2026-09-28 — implemented on `main`.** `backend/mailer.py` adds the Microsoft Graph
+> transport described in §5 (standard library only, token cached in memory, one retry on 401).
+> Switch it on with `auth.mail.method: "graph"` plus the four `auth.mail.graph` keys in
+> `config.local.yaml`; `python -m backend.check_smtp <to>` reports the method, fetches a token and
+> maps provider errors to hints. Admin steps are in HANDOFF.md §6.1. SMTP remains the default so
+> nothing changes for other installs. The original brief follows unchanged.
+
 **Status (2026-09-25):** login codes for *First login / Forgot password* are NOT delivered by email
 on the production server. Every attempt fails and the app falls back to writing the code to
 `data/logs/app.log`. No server-side configuration can fix it from the network the server is on.

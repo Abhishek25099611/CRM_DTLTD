@@ -69,6 +69,14 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
     env_smtp = {key: os.environ[var] for var, key in env_map.items() if os.environ.get(var)}
     if env_smtp:
         raw = _deep_merge(raw, {"auth": {"smtp": env_smtp}})
+    # Microsoft Graph transport (auth.mail.method: graph) — same idea, secrets may stay out of files
+    env_graph = {"DUZTEC_GRAPH_TENANT_ID": "tenant_id", "DUZTEC_GRAPH_CLIENT_ID": "client_id",
+                 "DUZTEC_GRAPH_CLIENT_SECRET": "client_secret", "DUZTEC_GRAPH_SENDER": "sender"}
+    g = {key: os.environ[var] for var, key in env_graph.items() if os.environ.get(var)}
+    if g:
+        raw = _deep_merge(raw, {"auth": {"mail": {"graph": g}}})
+    if os.environ.get("DUZTEC_MAIL_METHOD"):
+        raw = _deep_merge(raw, {"auth": {"mail": {"method": os.environ["DUZTEC_MAIL_METHOD"]}}})
     if os.environ.get("DUZTEC_PORT"):
         raw = _deep_merge(raw, {"app": {"port": int(os.environ["DUZTEC_PORT"])}})
     # Point a second instance at its own data (used for testing without touching the live database)

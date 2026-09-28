@@ -10,12 +10,22 @@
 # ---------------------------------------------------------------------------
 
 auth:
-  smtp:
+  mail:
+    # "graph" = Microsoft Graph sendMail over HTTPS (Microsoft 365 tenants; needs an Entra app
+    #           registration with the Mail.Send application permission — HANDOFF.md §6.1)
+    # "smtp"  = classic SMTP with a password (Zoho, Google Workspace app password, cPanel)
+    method: "graph"
+    graph:
+      tenant_id: "00000000-0000-0000-0000-000000000000"     # Directory (tenant) ID
+      client_id: "00000000-0000-0000-0000-000000000000"     # Application (client) ID
+      client_secret: "REPLACE-WITH-SECRET-VALUE"            # keep the quotes: '#' would start a comment
+      sender: "server@duztec.in"                            # a licensed mailbox in the tenant
+  smtp:                              # used only when method is "smtp"
     # Zoho Mail (India)      : smtp.zoho.in       port 587
     # Google Workspace       : smtp.gmail.com     port 587  (app password required)
-    # Microsoft 365          : smtp.office365.com port 587  (SMTP AUTH must be enabled)
+    # Microsoft 365          : smtp.office365.com port 587  (only if an admin enables Authenticated SMTP)
     # cPanel / shared hosting: mail.duztec.in     port 587 or 465
-    host: "smtp.zoho.in"
+    host: ""
     port: 587                      # 465 = implicit SSL, anything else = STARTTLS
     username: "office@duztec.in"
     password: "REPLACE-WITH-APP-PASSWORD"

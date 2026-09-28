@@ -60,9 +60,12 @@ On the server the CRM runs unattended via Task Scheduler (`run_crm_service.bat`)
   clicks **First login / Forgot password**, receives a 6-digit code by email and sets a password
   (min. 8 characters). A reset signs out the user's other devices. 5 wrong passwords lock the
   account for 15 minutes. Passwords are stored as salted PBKDF2-SHA256 hashes.
-- **Email (SMTP)**: configured in `config.local.yaml` (or `DUZTEC_SMTP_*` env vars). Test with
-  `.venv\Scripts\python -m backend.check_smtp you@duztec.in`. If sending fails, the code is written
-  to `data/logs/app.log` (`findstr "LOGIN OTP" data\logs\app.log`) so only the server can log in.
+- **Email**: two transports in `backend/mailer.py`, chosen by `auth.mail.method` in
+  `config.local.yaml` — `graph` (Microsoft Graph `sendMail` over HTTPS with an Entra app registration;
+  the one that works from Duztec's server, see HANDOFF.md §6) or `smtp` (default; `auth.smtp` block or
+  `DUZTEC_SMTP_*` env vars). Test with `.venv\Scripts\python -m backend.check_smtp you@duztec.in` —
+  it prints the effective settings, fetches a Graph token and maps provider errors to hints. If
+  sending fails, the code is written to `data/logs/app.log` (`findstr "LOGIN OTP" data\logs\app.log`).
 - **Admins** (config-seeded): office@, vasanirs@ (RKZ RV), abhishek.ghumare@lechlerindia.com.
   Users tab: add engineers with unique RKZ codes; the Password column shows who has set one;
   the RKZ Coverage panel shows unassigned records.
