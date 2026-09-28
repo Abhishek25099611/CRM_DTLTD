@@ -422,7 +422,14 @@ also recorded in the in-app activity feed on the dashboard.
 ## 15. Pre-production checklist
 
 - [ ] `crm.db` copied from the old machine and verified (customer/quotation counts match)
-- [ ] `config.local.yaml` created with working SMTP — `check_smtp` passes
+- [x] `config.local.yaml` created with working mail — `check_smtp` passes (production server: Microsoft
+      Graph, app "Duztec CRM Mailer", sender server@duztec.in; internal and external delivery verified 2026-09-28)
+- [ ] **Rotate the Graph client secret before it expires — created 2026-09-28, 24 months → expires
+      ~2028-09-28.** Entra → App registrations → Duztec CRM Mailer → Certificates & secrets → New client
+      secret → update `auth.mail.graph.client_secret` in the server's `config.local.yaml` → restart the
+      "Duztec CRM" task → run `check_smtp` → delete the old secret. Set a calendar reminder ~2028-08.
+- [ ] ApplicationAccessPolicy restricting the app to server@duztec.in created (§6.1 step 5) and
+      `Test-ApplicationAccessPolicy` shows Granted — until then the app may send as any duztec.in mailbox
 - [ ] Real **GSTIN**, bank details and standard terms filled in (quotations are legal documents)
 - [ ] One real first login (emailed code → set password) completed by someone who is *not* on the server
 - [ ] Static IP set, firewall rule added, users can reach `http://<ip>:8016/`
