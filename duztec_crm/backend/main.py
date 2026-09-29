@@ -53,7 +53,7 @@ def _startup():
     res = import_mis.run()
     LOGGER.info("Startup import: %s", res)
     db.backfill_states()
-    db.backfill_order_contacts()
+    db.backfill_orders()
     db.seed_products()
 
 

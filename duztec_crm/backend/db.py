@@ -212,23 +212,33 @@ def backfill_states() -> int:
     return n + p
 
 
-def backfill_order_contacts() -> int:
-    """Orders created before Phase 4 have no contact person. Copy it from the quotation's contact (or,
-    failing that, the enquiry's) — only into blank orders, so anything typed by hand is never overwritten."""
+def backfill_orders() -> int:
+    """Fill order fields that older / imported orders lack, from the linked quotation. Only blanks are
+    touched, so anything typed by hand is never overwritten; idempotent (re-running fills nothing new).
+      - contact person  <- the quotation's contact (or, failing that, the enquiry's)
+      - product          <- the quotation's first line item description
+    """
     con = connect()
-    rows = con.execute("""
+    contacts = con.execute("""
         SELECT o.id, ct.name, ct.phone, ct.email FROM orders o
         JOIN quotations q ON q.id=o.quotation_id
         LEFT JOIN enquiries e ON e.id=q.enquiry_id
         JOIN contacts ct ON ct.id=COALESCE(q.contact_id, e.contact_id)
         WHERE COALESCE(o.contact_name,'')=''""").fetchall()
-    for r in rows:
+    for r in contacts:
         con.execute("UPDATE orders SET contact_name=?, contact_phone=?, contact_email=? WHERE id=?",
                     (r["name"], r["phone"] or "", r["email"] or "", r["id"]))
+    products = con.execute("""
+        SELECT o.id, (SELECT description FROM quotation_items i WHERE i.quotation_id=o.quotation_id
+                      ORDER BY sr LIMIT 1) product
+        FROM orders o WHERE COALESCE(o.system,'')='' AND o.quotation_id IS NOT NULL""").fetchall()
+    products = [r for r in products if (r["product"] or "").strip()]
+    for r in products:
+        con.execute("UPDATE orders SET system=? WHERE id=?", (r["product"].strip(), r["id"]))
     con.commit(); con.close()
-    if rows:
-        LOGGER.info("Backfilled contact person on %d order(s) from their quotation / enquiry", len(rows))
-    return len(rows)
+    if contacts or products:
+        LOGGER.info("Backfilled orders from their quotation: %d contact(s), %d product(s)", len(contacts), len(products))
+    return len(contacts) + len(products)
 
 
 def backup() -> str:
