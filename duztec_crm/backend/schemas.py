@@ -37,6 +37,18 @@ class EnquiryIn(BaseModel):
     technical: str = ""        # important technical requirement / consideration for this enquiry
 
 
+class EnquiryEditIn(BaseModel):
+    """Editable details of an existing enquiry (customer and number stay fixed)."""
+    date: str = ""
+    source: str = ""
+    contact_id: int | None = None
+    requirement: str = ""
+    system: str = ""
+    expected_value: float = 0
+    priority: str = "Normal"
+    technical: str = ""
+
+
 class ItemIn(BaseModel):
     description: str
     hsn: str = ""

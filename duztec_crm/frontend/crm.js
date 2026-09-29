@@ -246,7 +246,8 @@
       <div class="kanban">${cols.map(([k, t]) => { const items = list.filter(e => k.split(',').includes(e.status));
         return `<div class="kcol"><h3>${t}<span>${items.length}</span></h3>${items.map(e => `
           <div class="kcard type-${esc((e.priority || 'Normal').replace(/\s+/g, ''))}" data-id="${e.id}"><b>${esc(e.enq_no)} ${pill(e.status)} ${typePill(e.priority)}</b>
-          ${esc(e.customer)}${e.end_customer ? ' <span class="muted">→ ' + esc(e.end_customer) + '</span>' : ''}<div class="muted">${esc(e.system)} · ${esc(e.date)}${e.expected_value ? ' · ' + money(e.expected_value) : ''}${e.next_followup ? ' · FU ' + esc(e.next_followup) : ''} ${slaBadge(e)}</div></div>`).join('')}</div>`; }).join('')}</div>`;
+          ${esc(e.customer)}${e.end_customer ? ' <span class="muted">→ ' + esc(e.end_customer) + '</span>' : ''}<div class="muted">${esc(e.system)} · ${esc(e.date)}${e.expected_value ? ' · ' + money(e.expected_value) : ''}${e.next_followup ? ' · FU ' + esc(e.next_followup) : ''} ${slaBadge(e)}</div>
+          ${e.technical ? `<div class="muted small" title="${esc(e.technical)}">⚙ ${esc(e.technical.length > 90 ? e.technical.slice(0, 90) + '…' : e.technical)}</div>` : ''}</div>`).join('')}</div>`; }).join('')}</div>`;
     $('btn-new-enq').onclick = newEnquiryForm;
     document.querySelectorAll('.kcard').forEach(el => el.onclick = () => enquiryActions(list.find(x => x.id == el.dataset.id)));
   }
@@ -263,8 +264,8 @@
       <div class="full"><label>Requirement</label><textarea id="f-req"></textarea></div>
       <div><label>Salesperson (RKZ)</label><input id="f-sp" placeholder="e.g. RV" value="${!isAdmin() ? esc(ME.rkz) : ''}" ${!isAdmin() ? 'readonly style="background:var(--gray)"' : ''}></div>
       <div><label>Enquiry type</label><select id="f-type">${typeOptions()}</select></div>
-      <div class="full"><label>Technical <span class="muted small">— important technical requirement or consideration for this enquiry</span></label><textarea id="f-tech" rows="2" placeholder="e.g. 30 m throw, 415 V 3-ph supply at site, dust load 200 mg/Nm³"></textarea></div>
-      <div class="full muted small">The 48-working-hour quotation timer starts when you save this enquiry.</div>
+      <div class="full"><label>Technical <span class="muted small">— important technical requirement or consideration for this enquiry</span></label><textarea id="f-tech" rows="3" placeholder="e.g. 30 m throw, 415 V 3-ph supply at site, dust load 200 mg/Nm³"></textarea></div>
+      <div class="full muted small">The 48-working-hour quotation timer starts when you save this enquiry. Details (including Technical) can be edited later from the enquiry card.</div>
       <div class="full"><button class="btn primary" id="f-save">Save Enquiry</button></div></div>`);
     $('f-cust').onchange = async () => { const cid = $('f-cust').value; if (!cid) return;
       const cs = await api('/api/contacts?customer_id=' + cid);
@@ -285,9 +286,11 @@
   function enquiryActions(e) {
     openModal(e.enq_no + ' — ' + e.customer, `
       <p>${pill(e.status)} ${typePill(e.priority)} ${slaBadge(e)} · ${esc(e.system)} · ${esc(e.date)} · ${esc(e.source)}${e.expected_value ? ' · ' + money(e.expected_value) : ''}${e.contact ? ' · ' + esc(e.contact) : ''}${e.end_customer ? '<br>End customer: ' + esc(e.end_customer) : ''}<br>
-      <span class="muted">${esc(e.requirement || '')}</span>${e.technical ? '<br><b>Technical:</b> <span class="muted">' + esc(e.technical) + '</span>' : ''}</p>
+      <span class="muted">${esc(e.requirement || '')}</span></p>
+      <div class="detail-grid" style="margin:0 0 12px"><div><span class="lbl">Technical — requirement / consideration</span><span class="val">${e.technical ? esc(e.technical) : '<span class="muted">— none recorded; use Edit details to add it</span>'}</span></div></div>
       <div class="filter-actions" style="flex-wrap:wrap">
         <button class="btn primary" id="a-quote" data-write>Create Quotation</button>
+        <button class="btn secondary" id="a-edit" data-write>Edit details</button>
         ${isAdmin() ? '<button class="btn secondary" id="a-rkz" data-write>Assign RKZ (' + esc(e.salesperson || 'none') + ')</button>' : ''}
         <button class="btn secondary" id="a-qualify" data-write>Mark Qualified</button>
         <button class="btn secondary" id="a-fu" data-write>Add Follow-up</button>
@@ -295,11 +298,35 @@
         <button class="btn danger" id="a-drop" data-write>Drop</button>
       </div>`);
     $('a-quote').onclick = () => { closeModal(); switchView('quotes'); setTimeout(() => quoteForm(e), 150); };
+    $('a-edit').onclick = () => editEnquiryForm(e);
     $('a-qualify').onclick = async () => { await api(`/api/enquiries/${e.id}/status`, { body: { status: 'qualified' } }); closeModal(); renderEnquiries(); };
     $('a-drop').onclick = async () => { await api(`/api/enquiries/${e.id}/status`, { body: { status: 'dropped' } }); closeModal(); renderEnquiries(); };
     $('a-fu').onclick = () => followupForm('enquiry', e.id, e.enq_no);
     $('a-docs').onclick = () => docsPanel('enquiry', e.id, e.enq_no);
     const ar = $('a-rkz'); if (ar) ar.onclick = () => { closeModal(); assignRkz('enquiry', [e.id], e.salesperson, renderEnquiries); };
+  }
+
+  async function editEnquiryForm(e) {
+    let contacts = []; try { contacts = await api('/api/contacts?customer_id=' + e.customer_id); } catch (x) { contacts = []; }
+    openModal('Edit ' + e.enq_no + ' — ' + e.customer, `<div class="modal-form">
+      <div><label>Date</label><input type="date" id="ee-date" value="${esc(e.date || '')}"></div>
+      <div><label>Source</label><select id="ee-source">${['Call', 'Email', 'Visit', 'Exhibition', 'Reference', 'Website'].map(s => `<option ${s === e.source ? 'selected' : ''}>${s}</option>`).join('')}${e.source && !['Call', 'Email', 'Visit', 'Exhibition', 'Reference', 'Website'].includes(e.source) ? `<option selected>${esc(e.source)}</option>` : ''}</select></div>
+      <div class="full"><label>Contact person</label><select id="ee-contact"><option value="">—</option>${contacts.map(c => `<option value="${c.id}" ${c.id == e.contact_id ? 'selected' : ''}>${contactLabel(c)}</option>`).join('')}</select></div>
+      <div><label>System / product</label><input id="ee-system" value="${esc(e.system || '')}"></div>
+      <div><label>Expected value (₹)</label><input type="number" id="ee-value" min="0" value="${e.expected_value || ''}"></div>
+      <div class="full"><label>Requirement</label><textarea id="ee-req" rows="2">${esc(e.requirement || '')}</textarea></div>
+      <div><label>Enquiry type</label><select id="ee-type">${typeOptions(e.priority)}${e.priority && !(CFG.enquiry_types || []).includes(e.priority) ? `<option selected>${esc(e.priority)}</option>` : ''}</select></div>
+      <div></div>
+      <div class="full"><label>Technical <span class="muted small">— important technical requirement or consideration for this enquiry</span></label><textarea id="ee-tech" rows="4" placeholder="e.g. 30 m throw, 415 V 3-ph supply at site, dust load 200 mg/Nm³">${esc(e.technical || '')}</textarea></div>
+      <div class="full"><button class="btn primary" id="ee-save">Save Changes</button></div></div>`);
+    $('ee-save').onclick = async () => {
+      try {
+        await api('/api/enquiries/' + e.id, { method: 'PUT', body: { date: $('ee-date').value, source: $('ee-source').value,
+          contact_id: +$('ee-contact').value || null, system: $('ee-system').value, expected_value: +$('ee-value').value || 0,
+          requirement: $('ee-req').value, priority: $('ee-type').value, technical: $('ee-tech').value } });
+        closeModal(); flash('Enquiry ' + e.enq_no + ' updated'); renderEnquiries();
+      } catch (x) { flash(x.message, false); }
+    };
   }
 
   // ================= QUOTATIONS =================

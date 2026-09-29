@@ -24,7 +24,7 @@ class Settings:
     company: dict[str, Any] = field(default_factory=dict)
     numbering: dict[str, Any] = field(default_factory=dict)
     quotation_defaults: dict[str, Any] = field(default_factory=dict)
-    enquiry_types: list[str] = field(default_factory=lambda: ["Normal", "Tender", "Budgetary", "Supporting", "Repeat Order"])
+    enquiry_types: list[str] = field(default_factory=lambda: ["Normal", "Tender", "Technical", "Budgetary", "Supporting", "Repeat Order"])
     quotation_types: list[str] = field(default_factory=lambda: ["Tender", "Technical", "Supporting", "Other"])
     state_keywords: dict[str, str] = field(default_factory=dict)
     pincode_keywords: dict[str, str] = field(default_factory=dict)

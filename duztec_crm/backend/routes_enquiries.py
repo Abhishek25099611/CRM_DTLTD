@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from . import db
 from .config import SETTINGS
-from .schemas import EnquiryIn, StatusIn
+from .schemas import EnquiryEditIn, EnquiryIn, StatusIn
 from .services import _scope, sla_for
 
 router = APIRouter()
@@ -61,6 +61,28 @@ def add_enquiry(e: EnquiryIn, request: Request):
     con.commit(); nid = cur.lastrowid; con.close()
     return {"id": nid, "enq_no": no,
             "duplicate_warning": f"Similar enquiry {dup['enq_no']} exists for this customer in the last 60 days" if dup else ""}
+
+
+@router.put("/api/enquiries/{eid}")
+def edit_enquiry(eid: int, e: EnquiryEditIn, request: Request):
+    """Update the details of an enquiry (incl. the Technical field). Engineers: own RKZ only."""
+    if e.priority not in SETTINGS.enquiry_types:
+        raise HTTPException(422, {"error_type": "bad_type",
+                                  "detail": f"Enquiry type must be one of: {', '.join(SETTINGS.enquiry_types)}"})
+    sc = _scope(request)
+    con = db.connect()
+    row = con.execute("SELECT id, enq_no, salesperson FROM enquiries WHERE id=?", (eid,)).fetchone()
+    if not row:
+        con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": f"enquiry {eid}"})
+    if sc and (row["salesperson"] or "").strip().upper() != sc:
+        con.close(); raise HTTPException(403, {"error_type": "forbidden", "detail": "This enquiry belongs to another RKZ code."})
+    con.execute("""UPDATE enquiries SET date=COALESCE(NULLIF(?,''), date), source=?, contact_id=?, requirement=?, system=?,
+                   expected_value=?, priority=?, technical=?, updated_at=? WHERE id=?""",
+                (e.date.strip(), e.source.strip(), e.contact_id, e.requirement.strip(), e.system.strip(),
+                 e.expected_value, e.priority, e.technical.strip(), db.now(), eid))
+    db.log_activity(con, "enquiry", eid, "edited", f"{row['enq_no']} · {e.system.strip()}")
+    con.commit(); con.close()
+    return {"ok": True}
 
 
 @router.post("/api/enquiries/{eid}/status")

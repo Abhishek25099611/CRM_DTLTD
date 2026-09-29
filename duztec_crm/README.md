@@ -73,9 +73,11 @@ On the server the CRM runs unattended via Task Scheduler (`run_crm_service.bat`)
   Drafts, locked once Sent) · `viewer` (sees everything, all writes refused by the middleware).
   Admins assign RKZ to old records via the ✎ buttons (dropdown of active users' codes) and can
   view login/logout history from the Users tab.
-- **Enquiry Type** (Normal / Tender / Budgetary / Supporting / Repeat Order) lives in the
-  enquiries `priority` column and is validated against `config.yaml → enquiry_types`. The
-  **Technical** field (`enquiries.technical`) holds the important technical requirement.
+- **Enquiry Type** (Normal / Tender / Technical / Budgetary / Supporting / Repeat Order) lives in
+  the enquiries `priority` column and is validated against `config.yaml → enquiry_types`. The
+  **Technical** field (`enquiries.technical`) holds the important technical requirement. Enquiry
+  details are editable after creation (`PUT /api/enquiries/{id}`, own RKZ only for engineers) via
+  "Edit details" on the enquiry card.
 - **Project specification** = the quotation `type`, from `config.yaml → quotation_types`
   (Tender / Technical / Supporting / Other). A quotation created from a Tender or Supporting
   enquiry keeps that type; every other enquiry type starts as Other. The Quotations tab filters
