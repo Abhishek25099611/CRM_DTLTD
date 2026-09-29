@@ -38,12 +38,12 @@ def summary(request: Request):
     enq = db.rows(con.execute(f"SELECT status, COUNT(*) n, SUM(expected_value) v FROM enquiries WHERE 1=1{E} GROUP BY status", a))
     stale = con.execute(f"""SELECT COUNT(*) n FROM enquiries WHERE status IN ('new','qualified')
                            AND updated_at < datetime('now','-7 day'){E}""", a).fetchone()["n"]
-    quotes = db.rows(con.execute(f"SELECT status, COUNT(*) n FROM quotations q WHERE status!='superseded'{Q} GROUP BY status", a))
     # Every ₹ figure is the NET value (after discount, before GST). Supporting quotations — reference work
-    # given as assistance — are left out of pipeline, won, lost and win rate altogether.
+    # given as assistance — are left out of the dashboard altogether: counts, values, win rate and charts.
     NS = NOT_SUPPORTING
     supporting = con.execute(f"SELECT COUNT(*) n FROM quotations q WHERE status!='superseded' AND q.type=?{Q}",
                              (SUPPORTING, *a)).fetchone()["n"]
+    quotes = db.rows(con.execute(f"SELECT status, COUNT(*) n FROM quotations q WHERE status!='superseded'{Q}{NS} GROUP BY status", a))
     pipeline = 0.0
     for r in con.execute(f"SELECT id FROM quotations q WHERE status IN ('sent','draft'){Q}{NS}", a):
         pipeline += _q_totals(con, r["id"])["net"]
@@ -58,7 +58,7 @@ def summary(request: Request):
                          (sc, sc) if sc else ()).fetchone()
     fu_due = con.execute("SELECT COUNT(*) n FROM followups WHERE done=0 AND due_date<=?", (today,)).fetchone()["n"]
     monthly = db.rows(con.execute(f"""SELECT substr(date,1,7) m, COUNT(*) n FROM quotations q
-                                     WHERE status!='superseded'{Q} GROUP BY m ORDER BY m""", a))
+                                     WHERE status!='superseded'{Q}{NS} GROUP BY m ORDER BY m""", a))
     recent = db.rows(con.execute("SELECT * FROM activity ORDER BY id DESC LIMIT 12"))
     # 48-hour SLA: enquiry punch-in -> first quotation sent, in working hours
     sla = {"in_time": 0, "late": 0, "open_breach": 0, "open_warn": 0, "limit": float(SETTINGS.sla.get("quote_within_hours", 48))}
@@ -85,13 +85,12 @@ def summary(request: Request):
     for r in con.execute(f"SELECT substr(date,1,7) m FROM enquiries WHERE 1=1{E}", a):
         if r["m"] in series:
             series[r["m"]]["enquiries"] += 1
-    for r in con.execute(f"SELECT id, substr(date,1,7) m, status, type FROM quotations q WHERE status!='superseded'{Q}", a):
+    for r in con.execute(f"SELECT id, substr(date,1,7) m, status FROM quotations q WHERE status!='superseded'{Q}{NS}", a):
         if r["m"] in series:
             series[r["m"]]["quotations"] += 1
-            if (r["type"] or "") != SUPPORTING:
-                series[r["m"]]["quotation_value"] += _q_totals(con, r["id"])["net"]
-                if r["status"] == "won":
-                    series[r["m"]]["won"] += 1
+            series[r["m"]]["quotation_value"] += _q_totals(con, r["id"])["net"]
+            if r["status"] == "won":
+                series[r["m"]]["won"] += 1
     for r in con.execute(f"""SELECT o.value v, substr(COALESCE(NULLIF(o.po_date,''), o.created_at),1,7) m FROM orders o
                              LEFT JOIN quotations q ON q.id=o.quotation_id{o_where}""", (sc, sc) if sc else ()):
         if r["m"] in series:

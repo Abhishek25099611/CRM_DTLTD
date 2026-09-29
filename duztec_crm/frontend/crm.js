@@ -165,7 +165,7 @@
       <section class="kpis">
         <div class="kpi neutral"><div class="kpi-label">Open Enquiries</div><div class="kpi-value">${openEnq}</div><div class="kpi-sub">${s.enquiries_stale} idle &gt; 7 days</div></div>
         <div class="kpi ${sla.open_breach ? 'critical' : 'success'}"><div class="kpi-label">Quoted within ${sla.limit || 48}h</div><div class="kpi-value">${sla.pct_in_time == null ? '—' : sla.pct_in_time + '%'}</div><div class="kpi-sub">${sla.in_time || 0} in time · ${sla.late || 0} late · <b>${sla.open_breach || 0}</b> open overdue</div></div>
-        <div class="kpi overdue"><div class="kpi-label">Pipeline Value</div><div class="kpi-value">${money(s.pipeline_value)}</div><div class="kpi-sub">${(qs.sent || 0) + (qs.draft || 0)} live quotations · net, excl. GST${s.supporting_excluded ? ` · <span title="Supporting quotations are reference work and are not counted in any ₹ figure or win rate">${s.supporting_excluded} supporting excluded</span>` : ''}</div></div>
+        <div class="kpi overdue"><div class="kpi-label">Pipeline Value</div><div class="kpi-value">${money(s.pipeline_value)}</div><div class="kpi-sub">${(qs.sent || 0) + (qs.draft || 0)} live quotations · net, excl. GST${s.supporting_excluded ? ` · <span title="Supporting quotations are reference work: excluded from every count, ₹ figure, win rate and chart on this dashboard">${s.supporting_excluded} supporting excluded</span>` : ''}</div></div>
         <div class="kpi success"><div class="kpi-label">Won Orders</div><div class="kpi-value">${money(s.won_value)}</div><div class="kpi-sub"><b>${s.orders.n}</b> orders booked</div></div>
         <div class="kpi critical"><div class="kpi-label">Lost</div><div class="kpi-value">${money(s.lost_value)}</div><div class="kpi-sub"><b>${s.lost}</b> lost · quoted net value excl. GST</div></div>
         <div class="kpi warning"><div class="kpi-label">Win Rate</div><div class="kpi-value">${s.win_rate_count}%</div><div class="kpi-sub">by count · <b>${s.win_rate_value}%</b> by value</div></div>
@@ -537,13 +537,17 @@
   }
 
   // ================= ORDERS =================
+  // Supporting (reference-only) quotations are neither counted nor shown in the Won / Lost views unless asked for
+  const showSup = { orders: false, lost: false };
+  const supToggle = (key, n) => `<label class="muted small" style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="sup-${key}" ${showSup[key] ? 'checked' : ''}> Show ${n} from supporting quotations (reference only, not counted)</label>`;
   async function renderOrders() {
-    const list = await api('/api/orders');
+    const all = await api('/api/orders');
     const isSup = o => o.quote_type === 'Supporting';
-    const total = list.filter(o => !isSup(o)).reduce((a, o) => a + (o.value || 0), 0);
-    const nSup = list.filter(isSup).length;
-    $('view').innerHTML = `<section class="card"><h2>Orders <span class="muted small">(${list.length} · ${money(total)}${nSup ? ` · ${nSup} from supporting quotations not counted` : ''})</span></h2>
-      <div class="filter-actions" style="margin-bottom:10px"><a class="btn secondary" href="/api/export/orders.xlsx">Export Excel</a></div>
+    const real = all.filter(o => !isSup(o)), nSup = all.length - real.length;
+    const list = showSup.orders ? all : real;
+    const total = real.reduce((a, o) => a + (o.value || 0), 0);
+    $('view').innerHTML = `<section class="card"><h2>Orders <span class="muted small">(${real.length} · ${money(total)})</span></h2>
+      <div class="filter-actions" style="margin-bottom:10px"><a class="btn secondary" href="/api/export/orders.xlsx">Export Excel</a>${nSup ? supToggle('orders', nSup) : ''}</div>
       <div class="table-wrap"><table><thead><tr><th>SO No.</th><th>PO No.</th><th>PO Date</th><th>Customer</th><th>Contact person</th><th>Product</th><th>Quote</th><th>RKZ</th><th class="num">Value</th><th>Delivery date</th><th>Payment terms</th><th></th></tr></thead>
       <tbody>${list.map(o => `<tr><td><b>${esc(o.so_no || '—')}</b></td><td class="wrap">${esc(o.po_no)}</td><td>${esc(o.po_date)}</td><td class="wrap">${esc(o.customer)}</td>
         <td class="wrap">${o.contact_name ? esc(o.contact_name) + (o.contact_phone ? `<div class="muted small">${esc(o.contact_phone)}</div>` : '') + (o.contact_email ? `<div class="muted small">${esc(o.contact_email)}</div>` : '') : '<span class="muted">—</span>'}</td>
@@ -552,6 +556,7 @@
         <td class="num">${inr(o.value)}</td><td>${o.delivery_date ? `<span class="${o.delivery_date < today() ? 'sla sla-breach' : ''}" title="${o.delivery_date < today() ? 'Delivery date has passed' : 'Expected / committed delivery'}">${esc(o.delivery_date)}</span>` : '<span class="muted">—</span>'}</td><td class="wrap">${esc(o.payment_terms)}</td>
         <td class="actions-cell"><button class="btn small" data-oedit="${o.id}" title="Edit SO / PO / contact / delivery / terms" data-write>Edit</button><button class="btn small" data-odocs="${o.id}" data-no="${esc(o.so_no || o.po_no || o.customer)}">Files</button></td></tr>`).join('') || '<tr class="empty"><td colspan="12">No orders</td></tr>'}</tbody></table></div>
       <div class="muted small" style="margin-top:8px">New orders take the quotation's net value (excl. GST) unless a value is entered when marking Won. The contact person is copied from the quotation; use Edit to change it or to set the delivery date.</div></section>`;
+    const st = $('sup-orders'); if (st) st.onchange = () => { showSup.orders = st.checked; renderOrders(); };
     document.querySelectorAll('[data-orkz]').forEach(b => b.onclick = () => assignRkz('order', [+b.dataset.orkz], b.dataset.cur, renderOrders));
     document.querySelectorAll('[data-oedit]').forEach(b => b.onclick = () => orderForm(list.find(x => x.id == b.dataset.oedit)));
     document.querySelectorAll('[data-odocs]').forEach(b => b.onclick = () => docsPanel('order', +b.dataset.odocs, 'Order ' + b.dataset.no));
@@ -580,16 +585,18 @@
 
   // ================= LOST =================
   async function renderLost() {
-    const list = await api('/api/lost');
-    const total = list.filter(r => !r.supporting).reduce((a, r) => a + (r.value || 0), 0);
-    const nSup = list.filter(r => r.supporting).length;
-    $('view').innerHTML = `<section class="card"><h2>Lost Deals <span class="muted small">(${list.length} · ${money(total)} quoted net value excl. GST${nSup ? ` · ${nSup} supporting listed but not counted` : ''})</span></h2>
-      <div class="filter-actions" style="margin-bottom:10px"><a class="btn secondary" href="/api/export/lost.xlsx">Export Excel</a></div>
+    const all = await api('/api/lost');
+    const real = all.filter(r => !r.supporting), nSup = all.length - real.length;
+    const list = showSup.lost ? all : real;
+    const total = real.reduce((a, r) => a + (r.value || 0), 0);
+    $('view').innerHTML = `<section class="card"><h2>Lost Deals <span class="muted small">(${real.length} · ${money(total)} quoted net value excl. GST)</span></h2>
+      <div class="filter-actions" style="margin-bottom:10px"><a class="btn secondary" href="/api/export/lost.xlsx">Export Excel</a>${nSup ? supToggle('lost', nSup) : ''}</div>
       <div class="table-wrap"><table><thead><tr><th>Quote</th><th>Quoted</th><th>Lost on</th><th>Customer</th><th>End customer</th><th>Product</th><th>Type</th><th>RKZ</th><th class="num">Value</th><th>Reason</th></tr></thead>
       <tbody>${list.map(r => `<tr class="row-critical"><td><button class="link-btn" data-detail="${r.id}">${esc(r.quote_no)}${r.rev ? '-' + esc(r.rev) : ''}</button>${r.enq_no ? `<div class="muted small">${esc(r.enq_no)}</div>` : ''}</td>
         <td>${esc(r.date)}</td><td>${esc((r.lost_on || '').slice(0, 10))}</td><td class="wrap">${esc(r.customer)}</td><td class="wrap">${esc(r.end_customer || '')}</td>
         <td class="wrap">${esc(r.product || '')}</td><td>${typePill(r.type)}</td><td>${esc(r.salesperson || '—')}</td><td class="num">${inr(r.value)}</td><td class="wrap">${esc(r.lost_reason)}</td></tr>`).join('') || '<tr class="empty"><td colspan="10">No lost deals recorded</td></tr>'}</tbody></table></div>
-      <div class="muted small" style="margin-top:8px">A lost deal is a quotation marked Lost (with its reason); it has no PO or SO. Supporting quotations are reference work and are not counted as lost business. Click the quotation number for full details and revisions.</div></section>`;
+      <div class="muted small" style="margin-top:8px">A lost deal is a quotation marked Lost (with its reason); it has no PO or SO. Supporting quotations are reference work: they are neither counted nor listed here unless you tick the box above. Click the quotation number for full details and revisions.</div></section>`;
+    const st = $('sup-lost'); if (st) st.onchange = () => { showSup.lost = st.checked; renderLost(); };
     document.querySelectorAll('[data-detail]').forEach(b => b.onclick = () => quoteDetail(+b.dataset.detail));
   }
 
