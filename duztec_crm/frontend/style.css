@@ -105,6 +105,11 @@ a.btn{text-decoration:none;display:inline-block}
 .section-card h2 .chev{transition:transform .15s}
 .section-card.collapsed h2 .chev{transform:rotate(-90deg)}
 td.wrap{white-space:pre-line;max-width:420px}
+.status-cell{min-width:120px}
+/* Lost reason: wrap to a tidy two lines, full text on hover */
+.status-cell .reason-clip{font-size:12px;color:var(--muted);margin-top:3px}
+.reason-clip{display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:280px;line-height:1.35;cursor:help}
+td.reason-clip{font-size:12.5px;color:var(--muted);vertical-align:top}
 .issue-flag{color:var(--critical);font-weight:700}
 .ops-note{white-space:pre-line;background:#fffbeb;border-left:4px solid var(--warning);padding:10px 14px;border-radius:6px}
 /* ---- MIS additions ---- */

@@ -350,7 +350,7 @@
         <tbody>${list.map(q => `<tr>
           <td><button class="link-btn" data-detail="${q.id}">${esc(q.quote_no)}${q.rev ? '-' + q.rev : ''}</button></td><td>${esc(q.date)}</td><td class="wrap">${esc(q.customer)}${q.end_customer_shown ? `<div class="muted small">→ ${esc(q.end_customer_shown)}</div>` : ''}${q.contact ? `<div class="muted small">${esc(q.contact)}</div>` : ''}</td>
           <td>${typePill(q.type)}</td>
-          <td class="num">${q.item_count}</td><td class="num" title="Total incl. GST: ${inr(q.total)}">${inr(q.net)}</td><td>${pill(q.status)}${q.lost_reason ? `<div class="muted small">${esc(q.lost_reason)}</div>` : ''}</td>
+          <td class="num">${q.item_count}</td><td class="num" title="Total incl. GST: ${inr(q.total)}">${inr(q.net)}</td><td class="status-cell">${pill(q.status)}${q.lost_reason ? `<div class="reason-clip" title="${esc(q.lost_reason)}">${esc(q.lost_reason)}</div>` : ''}</td>
           <td>${esc(q.salesperson || '')}${isAdmin() ? ` <button class="btn small" data-qrkz="${q.id}" data-cur="${esc(q.salesperson || '')}" title="Assign RKZ" data-write>✎</button>` : ''}</td>
           <td class="actions-cell">
             <a class="btn small secondary" target="_blank" href="/api/quotations/${q.id}/print">Print</a>
@@ -594,7 +594,7 @@
       <div class="table-wrap"><table><thead><tr><th>Quote</th><th>Quoted</th><th>Lost on</th><th>Customer</th><th>End customer</th><th>Product</th><th>Type</th><th>RKZ</th><th class="num">Value</th><th>Reason</th></tr></thead>
       <tbody>${list.map(r => `<tr class="row-critical"><td><button class="link-btn" data-detail="${r.id}">${esc(r.quote_no)}${r.rev ? '-' + esc(r.rev) : ''}</button>${r.enq_no ? `<div class="muted small">${esc(r.enq_no)}</div>` : ''}</td>
         <td>${esc(r.date)}</td><td>${esc((r.lost_on || '').slice(0, 10))}</td><td class="wrap">${esc(r.customer)}</td><td class="wrap">${esc(r.end_customer || '')}</td>
-        <td class="wrap">${esc(r.product || '')}</td><td>${typePill(r.type)}</td><td>${esc(r.salesperson || '—')}</td><td class="num">${inr(r.value)}</td><td class="wrap">${esc(r.lost_reason)}</td></tr>`).join('') || '<tr class="empty"><td colspan="10">No lost deals recorded</td></tr>'}</tbody></table></div>
+        <td class="wrap">${esc(r.product || '')}</td><td>${typePill(r.type)}</td><td>${esc(r.salesperson || '—')}</td><td class="num">${inr(r.value)}</td><td class="reason-clip" title="${esc(r.lost_reason)}">${esc(r.lost_reason)}</td></tr>`).join('') || '<tr class="empty"><td colspan="10">No lost deals recorded</td></tr>'}</tbody></table></div>
       <div class="muted small" style="margin-top:8px">A lost deal is a quotation marked Lost (with its reason); it has no PO or SO. Supporting quotations are reference work: they are neither counted nor listed here unless you tick the box above. Click the quotation number for full details and revisions.</div></section>`;
     const st = $('sup-lost'); if (st) st.onchange = () => { showSup.lost = st.checked; renderLost(); };
     document.querySelectorAll('[data-detail]').forEach(b => b.onclick = () => quoteDetail(+b.dataset.detail));
