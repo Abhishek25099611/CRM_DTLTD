@@ -212,6 +212,25 @@ def backfill_states() -> int:
     return n + p
 
 
+def backfill_order_contacts() -> int:
+    """Orders created before Phase 4 have no contact person. Copy it from the quotation's contact (or,
+    failing that, the enquiry's) — only into blank orders, so anything typed by hand is never overwritten."""
+    con = connect()
+    rows = con.execute("""
+        SELECT o.id, ct.name, ct.phone, ct.email FROM orders o
+        JOIN quotations q ON q.id=o.quotation_id
+        LEFT JOIN enquiries e ON e.id=q.enquiry_id
+        JOIN contacts ct ON ct.id=COALESCE(q.contact_id, e.contact_id)
+        WHERE COALESCE(o.contact_name,'')=''""").fetchall()
+    for r in rows:
+        con.execute("UPDATE orders SET contact_name=?, contact_phone=?, contact_email=? WHERE id=?",
+                    (r["name"], r["phone"] or "", r["email"] or "", r["id"]))
+    con.commit(); con.close()
+    if rows:
+        LOGGER.info("Backfilled contact person on %d order(s) from their quotation / enquiry", len(rows))
+    return len(rows)
+
+
 def backup() -> str:
     SETTINGS.backup.mkdir(parents=True, exist_ok=True)
     dst = SETTINGS.backup / f"crm_{datetime.now():%Y%m%d_%H%M%S}.db"
