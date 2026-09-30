@@ -167,7 +167,7 @@ def export(register: str, request: Request):
         "enquiries": (f"SELECT e.enq_no,e.date,e.source,c.name customer,e.system,e.requirement,e.technical,e.expected_value,e.salesperson,e.priority enquiry_type,e.status FROM enquiries e JOIN customers c ON c.id=e.customer_id WHERE 1=1{E} ORDER BY e.id", (sc,) if sc else ()),
         "quotations": (f"SELECT q.id,q.quote_no,q.rev,q.date,c.name customer,COALESCE(NULLIF(q.end_customer,''),c.end_customer) end_customer,q.type project_spec,q.status,q.lost_reason,q.salesperson FROM quotations q JOIN customers c ON c.id=q.customer_id WHERE q.status!='superseded'{Q} ORDER BY q.id", (sc,) if sc else ()),
         "orders": (f"SELECT o.po_no,o.so_no,o.po_date,c.name customer,q.quote_no,o.system,o.value,o.responsible,o.contact_name,o.contact_phone,o.contact_email,o.delivery_date,o.payment_terms FROM orders o JOIN customers c ON c.id=o.customer_id LEFT JOIN quotations q ON q.id=o.quotation_id WHERE 1=1{O} ORDER BY o.id", (sc, sc) if sc else ()),
-        "customers": ("SELECT name,gstin,address,state,pincode,segment FROM customers ORDER BY name", ()),
+        "customers": ("SELECT name,vendor_code,gstin,address,state,pincode,segment,end_customer FROM customers ORDER BY name", ()),
         "contacts": ("SELECT c.name customer,ct.name,ct.designation,ct.department,ct.phone,ct.email FROM contacts ct JOIN customers c ON c.id=ct.customer_id ORDER BY c.name, ct.name", ()),
     }
     if register == "logins":

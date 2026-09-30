@@ -12,6 +12,7 @@ class CustomerIn(BaseModel):
     pincode: str = ""
     segment: str = ""
     end_customer: str = ""    # the plant / end user when the customer is a trader or EPC
+    vendor_code: str = ""     # Duztec's unique vendor code for this customer
 
 
 class ContactIn(BaseModel):

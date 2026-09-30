@@ -18,11 +18,27 @@ def customers(q: str = ""):
              (SELECT COUNT(*) FROM documents d WHERE d.entity_type='customer' AND d.entity_id=c.id) document_count
              FROM customers c"""
     args: tuple = ()
-    if q:
-        sql += " WHERE c.name LIKE ? OR c.end_customer LIKE ?"; args = (f"%{q}%", f"%{q}%")
+    if q.strip():
+        like = f"%{q.strip()}%"
+        sql += """ WHERE c.name LIKE ? OR c.end_customer LIKE ? OR c.vendor_code LIKE ?
+                   OR c.gstin LIKE ? OR c.state LIKE ? OR c.pincode LIKE ? OR c.segment LIKE ?"""
+        args = (like, like, like, like, like, like, like)
     out = db.rows(con.execute(sql + " ORDER BY c.name COLLATE NOCASE", args))
     con.close()
     return out
+
+
+def _check_vendor_code(con, code: str, exclude_id: int | None = None) -> None:
+    """Duztec's vendor code is unique per customer (blank is allowed for customers without one yet)."""
+    code = code.strip()
+    if not code:
+        return
+    row = con.execute("SELECT id, name FROM customers WHERE vendor_code=? COLLATE NOCASE AND id IS NOT ?",
+                      (code, exclude_id)).fetchone()
+    if row:
+        con.close()
+        raise HTTPException(409, {"error_type": "duplicate_vendor_code",
+                                  "detail": f"Vendor code '{code}' is already used by {row['name']}."})
 
 
 @router.post("/api/customers")
@@ -32,10 +48,11 @@ def add_customer(c: CustomerIn):
     if ex:
         con.close()
         raise HTTPException(409, {"error_type": "duplicate", "detail": f"Customer already exists (id {ex['id']})"})
-    cur = con.execute("""INSERT INTO customers(name,gstin,address,state,pincode,segment,end_customer,created_at)
-                         VALUES(?,?,?,?,?,?,?,?)""",
+    _check_vendor_code(con, c.vendor_code)
+    cur = con.execute("""INSERT INTO customers(name,gstin,address,state,pincode,segment,end_customer,vendor_code,created_at)
+                         VALUES(?,?,?,?,?,?,?,?,?)""",
                       (c.name.strip(), c.gstin, c.address, c.state, c.pincode.strip(), c.segment,
-                       c.end_customer.strip(), db.now()))
+                       c.end_customer.strip(), c.vendor_code.strip(), db.now()))
     db.log_activity(con, "customer", cur.lastrowid, "created", c.name)
     con.commit(); nid = cur.lastrowid; con.close()
     return {"id": nid}
@@ -44,8 +61,13 @@ def add_customer(c: CustomerIn):
 @router.put("/api/customers/{cid}")
 def edit_customer(cid: int, c: CustomerIn):
     con = db.connect()
-    con.execute("UPDATE customers SET name=?,gstin=?,address=?,state=?,pincode=?,segment=?,end_customer=? WHERE id=?",
-                (c.name.strip(), c.gstin, c.address, c.state, c.pincode.strip(), c.segment, c.end_customer.strip(), cid))
+    if not con.execute("SELECT 1 FROM customers WHERE id=?", (cid,)).fetchone():
+        con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": f"customer {cid}"})
+    _check_vendor_code(con, c.vendor_code, exclude_id=cid)
+    con.execute("""UPDATE customers SET name=?,gstin=?,address=?,state=?,pincode=?,segment=?,end_customer=?,vendor_code=?
+                   WHERE id=?""",
+                (c.name.strip(), c.gstin, c.address, c.state, c.pincode.strip(), c.segment,
+                 c.end_customer.strip(), c.vendor_code.strip(), cid))
     con.commit(); con.close()
     return {"ok": True}
 

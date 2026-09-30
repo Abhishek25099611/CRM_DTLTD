@@ -605,6 +605,7 @@
     openModal('New Customer', `<div class="modal-form">
       <div class="full"><label>Name</label><input id="c-name"></div>
       <div class="full"><label>End customer <span class="muted small">(the plant / end user when this customer is a trader or EPC — e.g. "JSW Dolvi" for LIPL)</span></label><input id="c-endcust"></div>
+      <div><label>Duztec vendor code <span class="muted small">(unique)</span></label><input id="c-vcode" placeholder="Duztec's code for this customer"></div>
       <div><label>GSTIN</label><input id="c-gstin"></div>
       <div><label>State</label><select id="c-state">${stateOptions('')}</select></div>
       <div><label>Pincode</label><input id="c-pin" maxlength="6" inputmode="numeric" placeholder="e.g. 400604"></div>
@@ -618,28 +619,43 @@
       <div class="full"><label>Email</label><input id="c-cemail" type="email"></div>
       <div class="full"><button class="btn primary" id="c-save">Save Customer</button></div></div>`);
     $('c-save').onclick = async () => { try {
-      const r = await api('/api/customers', { body: { name: $('c-name').value, end_customer: $('c-endcust').value, gstin: $('c-gstin').value, state: $('c-state').value, pincode: $('c-pin').value, address: $('c-addr').value, segment: $('c-seg').value } });
+      const r = await api('/api/customers', { body: { name: $('c-name').value, end_customer: $('c-endcust').value, vendor_code: $('c-vcode').value, gstin: $('c-gstin').value, state: $('c-state').value, pincode: $('c-pin').value, address: $('c-addr').value, segment: $('c-seg').value } });
       if ($('c-contact').value.trim()) await api('/api/contacts', { body: { customer_id: r.id, name: $('c-contact').value, phone: $('c-phone').value, email: $('c-cemail').value, designation: $('c-cdesig').value, department: $('c-cdept').value } });
       await loadCustomers(); closeModal(); flash('Customer saved');
       if (after) after(); else if (view === 'customers') renderCustomers();
     } catch (e) { flash(e.message, false); } };
   }
 
-  const custBody = (c, patch) => ({ name: c.name, gstin: c.gstin, address: c.address, state: c.state || '', pincode: c.pincode || '', segment: c.segment, end_customer: c.end_customer || '', ...patch });
+  const custBody = (c, patch) => ({ name: c.name, gstin: c.gstin, address: c.address, state: c.state || '', pincode: c.pincode || '', segment: c.segment, end_customer: c.end_customer || '', vendor_code: c.vendor_code || '', ...patch });
 
+  let custSearch = '';
   async function renderCustomers() {
-    const list = await loadCustomers();
-    $('view').innerHTML = `<section class="card filters"><div class="filter-actions"><button class="btn primary" id="btn-new-c" data-write>+ New Customer</button>
+    const list = await api('/api/customers' + (custSearch ? '?q=' + encodeURIComponent(custSearch) : ''));
+    $('view').innerHTML = `<section class="card filters">
+      <div class="filter grow"><label for="c-search">Search customers</label><input id="c-search" value="${esc(custSearch)}" placeholder="name, vendor code, end customer, GSTIN, state, pincode…"></div>
+      <div class="filter-actions"><button class="btn" id="btn-c-search">Search</button>${custSearch ? '<button class="btn secondary" id="btn-c-clear">Clear</button>' : ''}
+      <button class="btn primary" id="btn-new-c" data-write>+ New Customer</button>
       <a class="btn secondary" href="/api/export/customers.xlsx">Export customers</a><a class="btn secondary" href="/api/export/contacts.xlsx">Export contacts</a></div>
-      <div class="muted small">${list.length} customers</div></section>
-      <section class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>End customer</th><th>Contacts</th><th>Files</th><th>GSTIN</th><th>State</th><th>Pincode</th><th>Segment</th><th class="num">Enquiries</th><th class="num">Quotes</th><th class="num">Order value</th></tr></thead>
+      <div class="muted small" style="flex-basis:100%">${list.length} customer${list.length === 1 ? '' : 's'}${custSearch ? ` matching "${esc(custSearch)}"` : ''}</div></section>
+      <section class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Vendor code</th><th>End customer</th><th>Contacts</th><th>Files</th><th>GSTIN</th><th>State</th><th>Pincode</th><th>Segment</th><th class="num">Enquiries</th><th class="num">Quotes</th><th class="num">Order value</th></tr></thead>
       <tbody>${list.map(c => `<tr><td class="wrap"><b>${esc(c.name)}</b></td>
+        <td>${c.vendor_code ? esc(c.vendor_code) : '<span class="muted">—</span>'} <button class="btn small" data-vcode="${c.id}" title="Edit Duztec vendor code" data-write>✎</button></td>
         <td class="wrap">${esc(c.end_customer || '—')} <button class="btn small" data-endc="${c.id}" title="Edit end customer" data-write>✎</button></td>
         <td><button class="btn small secondary" data-contacts="${c.id}">${c.contact_count || 0} contact${c.contact_count === 1 ? '' : 's'}</button></td>
         <td><button class="btn small secondary" data-cdocs="${c.id}">${c.document_count || 0} file${c.document_count === 1 ? '' : 's'}</button></td>
         <td>${esc(c.gstin)}</td><td>${esc(c.state)} <button class="btn small" data-state="${c.id}" title="Edit state" data-write>✎</button></td>
         <td>${esc(c.pincode || '—')} <button class="btn small" data-pin="${c.id}" title="Edit pincode" data-write>✎</button></td><td>${esc(c.segment)}</td>
-        <td class="num">${c.enquiries}</td><td class="num">${c.quotes}</td><td class="num">${inr(c.order_value)}</td></tr>`).join('')}</tbody></table></div></section>`;
+        <td class="num">${c.enquiries}</td><td class="num">${c.quotes}</td><td class="num">${inr(c.order_value)}</td></tr>`).join('') || '<tr class="empty"><td colspan="12">No customers match</td></tr>'}</tbody></table></div></section>`;
+    customersCache = list.length && !custSearch ? list : customersCache;   // keep the full list cached for dropdowns
+    $('btn-c-search').onclick = () => { custSearch = $('c-search').value.trim(); renderCustomers(); };
+    $('c-search').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-c-search').click(); });
+    const clr = $('btn-c-clear'); if (clr) clr.onclick = () => { custSearch = ''; renderCustomers(); };
+    document.querySelectorAll('[data-vcode]').forEach(b => b.onclick = () => {
+      const c = list.find(x => x.id == b.dataset.vcode);
+      openModal('Duztec vendor code — ' + c.name, `<div class="modal-form"><div class="full"><label>Vendor code <span class="muted small">(unique across customers; blank to clear)</span></label><input id="vc-val" value="${esc(c.vendor_code || '')}" placeholder="Duztec's code for this customer"></div>
+        <div class="full"><button class="btn primary" id="vc-save">Save</button></div></div>`);
+      $('vc-save').onclick = async () => { try { await api('/api/customers/' + c.id, { method: 'PUT', body: custBody(c, { vendor_code: $('vc-val').value.trim() }) }); closeModal(); flash('Vendor code updated'); renderCustomers(); } catch (e) { flash(e.message, false); } };
+    });
     $('btn-new-c').onclick = () => customerForm();
     document.querySelectorAll('[data-contacts]').forEach(b => b.onclick = () => contactsPanel(list.find(x => x.id == b.dataset.contacts)));
     document.querySelectorAll('[data-cdocs]').forEach(b => b.onclick = () => { const c = list.find(x => x.id == b.dataset.cdocs); docsPanel('customer', c.id, c.name, () => loadCustomers().then(renderCustomers)); });

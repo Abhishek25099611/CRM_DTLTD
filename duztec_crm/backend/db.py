@@ -11,7 +11,8 @@ from .config import LOGGER, SETTINGS
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS customers(
   id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, gstin TEXT DEFAULT '', address TEXT DEFAULT '',
-  state TEXT DEFAULT '', pincode TEXT DEFAULT '', segment TEXT DEFAULT '', created_at TEXT NOT NULL);
+  state TEXT DEFAULT '', pincode TEXT DEFAULT '', segment TEXT DEFAULT '',
+  vendor_code TEXT DEFAULT '', created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS contacts(
   id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id),
   name TEXT NOT NULL, phone TEXT DEFAULT '', email TEXT DEFAULT '', role TEXT DEFAULT '',
@@ -108,6 +109,7 @@ MIGRATIONS = [
     ("orders", "contact_name", "TEXT DEFAULT ''"),
     ("orders", "contact_phone", "TEXT DEFAULT ''"),
     ("orders", "contact_email", "TEXT DEFAULT ''"),
+    ("customers", "vendor_code", "TEXT DEFAULT ''"),     # Duztec's unique vendor code for the customer
 ]
 
 
