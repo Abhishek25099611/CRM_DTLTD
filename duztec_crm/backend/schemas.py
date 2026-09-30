@@ -94,6 +94,7 @@ class QuotationIn(BaseModel):
     scope: str = ""
     warranty: str = ""
     additional_description: str = ""
+    water_quality: str = ""      # design-basis water quality; printed under its own heading
     terms_conditions: str = ""   # one term per line; numbered on the print
     # retired fields (pre-Phase-4 quotations still carry them; accepted so old drafts can be re-saved)
     delivery_terms: str = ""

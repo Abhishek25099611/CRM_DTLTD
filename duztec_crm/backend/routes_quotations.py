@@ -13,7 +13,7 @@ from .services import _check_quote_access, _check_quote_edit, _is_admin, _q_tota
 
 router = APIRouter()
 
-TEXT_SECTIONS = ("introduction", "scope", "warranty", "additional_description", "terms_conditions")
+TEXT_SECTIONS = ("introduction", "scope", "warranty", "additional_description", "water_quality", "terms_conditions")
 LEGACY_TEXT = ("delivery_terms", "payment_terms", "notes", "guarantee")   # pre-Phase-4 fields, kept for old quotations
 
 
@@ -159,14 +159,14 @@ def add_quotation(q: QuotationIn, request: Request):
     no = db.next_quote_no(con)
     cur = con.execute("""INSERT INTO quotations(quote_no,rev,enquiry_id,customer_id,contact_id,date,validity_days,
                          delivery_terms,payment_terms,notes,gst_mode,discount_pct,salesperson,type,end_customer,
-                         introduction,scope,warranty,guarantee,additional_description,terms_conditions,
+                         introduction,scope,warranty,guarantee,additional_description,water_quality,terms_conditions,
                          status,created_at,updated_at)
-                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'draft', ?, ?)""",
+                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'draft', ?, ?)""",
                       (no, "", q.enquiry_id, q.customer_id, q.contact_id, q.date or date.today().isoformat(),
                        f["validity_days"], f["delivery_terms"], f["payment_terms"], f["notes"],
                        q.gst_mode, q.discount_pct, q.salesperson, qtype, _end_customer(con, q),
                        f["introduction"], f["scope"], f["warranty"], f["guarantee"],
-                       f["additional_description"], f["terms_conditions"], db.now(), db.now()))
+                       f["additional_description"], f["water_quality"], f["terms_conditions"], db.now(), db.now()))
     qid = cur.lastrowid
     _save_items(con, qid, q.items)
     if q.enquiry_id:
@@ -193,13 +193,13 @@ def edit_quotation(qid: int, q: QuotationIn, request: Request):
         con.close(); raise HTTPException(422, {"error_type": "locked", "detail": f"Cannot edit a {ex['status']} quotation — create a revision instead"})
     con.execute("""UPDATE quotations SET customer_id=?,contact_id=?,date=?,validity_days=?,delivery_terms=?,
                    payment_terms=?,notes=?,gst_mode=?,discount_pct=?,salesperson=?,type=?,end_customer=?,
-                   introduction=?,scope=?,warranty=?,guarantee=?,additional_description=?,terms_conditions=?,
+                   introduction=?,scope=?,warranty=?,guarantee=?,additional_description=?,water_quality=?,terms_conditions=?,
                    updated_at=? WHERE id=?""",
                 (q.customer_id, q.contact_id, q.date or date.today().isoformat(), q.validity_days,
                  q.delivery_terms, q.payment_terms, q.notes, q.gst_mode, q.discount_pct, q.salesperson,
                  _project_spec(con, q), _end_customer(con, q),
                  q.introduction, q.scope, q.warranty, q.guarantee, q.additional_description.strip(),
-                 q.terms_conditions.strip(), db.now(), qid))
+                 q.water_quality.strip(), q.terms_conditions.strip(), db.now(), qid))
     _save_items(con, qid, q.items)
     db.log_activity(con, "quotation", qid, "edited", "")
     con.commit(); con.close()
@@ -219,11 +219,11 @@ def revise(qid: int, request: Request):
     rev = chr(ord(r["rev"]) + 1) if r["rev"] else "B"
     cur = con.execute("""INSERT INTO quotations(quote_no,rev,enquiry_id,customer_id,contact_id,date,validity_days,
                          delivery_terms,payment_terms,notes,gst_mode,discount_pct,salesperson,type,end_customer,
-                         introduction,scope,warranty,guarantee,additional_description,terms_conditions,
+                         introduction,scope,warranty,guarantee,additional_description,water_quality,terms_conditions,
                          status,created_at,updated_at)
                          SELECT quote_no,?,enquiry_id,customer_id,contact_id,?,validity_days,delivery_terms,
                          payment_terms,notes,gst_mode,discount_pct,salesperson,type,end_customer,
-                         introduction,scope,warranty,guarantee,additional_description,terms_conditions,
+                         introduction,scope,warranty,guarantee,additional_description,water_quality,terms_conditions,
                          'draft',?,? FROM quotations WHERE id=?""",
                       (rev, date.today().isoformat(), db.now(), db.now(), qid))
     nid = cur.lastrowid

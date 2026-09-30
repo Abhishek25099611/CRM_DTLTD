@@ -402,7 +402,8 @@
         <div class="totals-box">${d.discount_pct ? `<span>Subtotal: ${money(d.subtotal)}</span><span>Discount ${d.discount_pct}%</span>` : ''}<b>Net total (excl. GST): ${money(d.net)}</b><span>GST: ${money(d.gst)}</span><span class="muted">Total incl. GST: ${money(d.total)}</span></div></div>
       <div class="detail-section"><div class="detail-grid">
         ${row('Scope of supply', esc(d.scope))}${row('Warranty', esc(d.warranty))}
-        ${row('Additional description', esc(d.additional_description))}${row('Introduction', esc(d.introduction))}
+        ${row('Water quality', esc(d.water_quality))}${row('Additional description', esc(d.additional_description))}
+        ${row('Introduction', esc(d.introduction))}
         ${!d.terms_conditions && (d.payment_terms || d.delivery_terms || d.guarantee || d.notes) ? row('Payment terms', esc(d.payment_terms)) + row('Delivery terms', esc(d.delivery_terms)) + row('Guarantee', esc(d.guarantee)) + row('Notes', esc(d.notes)) : ''}</div>
         <h3 style="margin-top:12px">Terms &amp; Conditions</h3>${termsList(d.terms_conditions) || '<span class="muted">None recorded on this quotation (older quotations print their delivery / payment terms instead).</span>'}</div>
       <div class="detail-section"><h3>Order status</h3>${o ? `${pill('won')} SO <b>${esc(o.so_no || '—')}</b> · Customer PO ${esc(o.po_no || '—')} (${esc(o.po_date)}) · ${money(o.value)}${o.delivery_date ? ' · delivery ' + esc(o.delivery_date) : ''}${o.contact_name ? ' · contact ' + esc(o.contact_name) + (o.contact_phone ? ' ' + esc(o.contact_phone) : '') : ''}` : d.status === 'lost' ? `${pill('lost')} ${esc(d.lost_reason)}` : '<span class="muted">No order yet</span>'}</div>
@@ -457,6 +458,7 @@
       <div class="modal-form">
         ${sec('q-scope', 'Scope of supply', q.scope || d.scope)}
         ${sec('q-warranty', 'Warranty', q.warranty || d.warranty)}
+        ${sec('q-water', 'Water Quality <span class="muted small">— design-basis water parameters; printed under its own heading</span>', q.water_quality || (existing ? '' : d.water_quality), 6)}
         ${sec('q-adddesc', 'Additional description <span class="muted small">— anything specific to this offer (optional)</span>', q.additional_description || (existing ? '' : d.additional_description))}
         ${sec('q-terms', 'Terms &amp; Conditions <span class="muted small">— one term per line; the print numbers them 1, 2, 3…</span>', q.terms_conditions || (existing ? legacyTerms(q) : d.terms_conditions), 8)}
         <div class="full filter-actions"><button class="btn primary" id="q-save">${existing ? 'Save Changes' : 'Save Draft'}</button></div>
@@ -497,7 +499,7 @@
         contact_id: +$('q-contact').value || null, date: $('q-date').value, validity_days: +$('q-valid').value,
         gst_mode: $('q-gst').value, discount_pct: +$('q-disc').value || 0, salesperson: $('q-sp').value, type: $('q-type').value,
         introduction: $('q-intro').value, scope: $('q-scope').value, warranty: $('q-warranty').value,
-        additional_description: $('q-adddesc').value, terms_conditions: $('q-terms').value, end_customer: $('q-endc').value.trim(), items };
+        additional_description: $('q-adddesc').value, water_quality: $('q-water').value, terms_conditions: $('q-terms').value, end_customer: $('q-endc').value.trim(), items };
       try {
         const r = existing ? await api('/api/quotations/' + q.id, { method: 'PUT', body })
                            : await api('/api/quotations', { body });

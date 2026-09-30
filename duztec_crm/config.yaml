@@ -33,13 +33,24 @@ quotation_defaults:
   # Pre-filled text sections; edit per quotation. Multi-line text is allowed (use | in YAML).
   # Terms & Conditions: one term per line — the print numbers them automatically.
   terms_conditions: |
-    Prices are ex-works Thane, exclusive of GST, which will be charged extra at the prevailing rate.
-    Delivery: 8-10 weeks from the date of a technically and commercially clear purchase order.
-    Payment: 50% advance along with the purchase order; balance 50% before dispatch.
-    Freight, transit insurance and unloading at site are in the buyer's scope unless stated otherwise.
-    Civil work, power and water supply at site, and any item not expressly listed are excluded.
-    Installation and commissioning, where quoted, are subject to site readiness by the buyer.
+    Price Basis: Ex-Works, Thane.
+    GST: Extra 18% as applicable.
+    Delivery: 12 weeks after release of PO.
+    Insurance: In customer scope.
+    Freight: In customer scope.
+    Validity: 2 weeks.
+    Payment Terms: 50% advance against PO and 50% with full GST against material readiness.
+    Inspection: At Thane works as per Duztec test standards.
+    GST No.: 27AAGCD9556R1ZN.
   additional_description: ""
+  # Water quality (design basis for the offered system) — printed under its own heading on the quotation.
+  water_quality: |
+    Content of chlorides: max. 60 mg/l
+    Content of corrosive components: max. 450 mg/l (as long as suitable for mild and stainless steel)
+    pH-value: 6 - 8
+    Solids: <200 microns
+    Proportion of solids: Less than approx. 30 mg/l
+    Hardness of Water: 100 mg CaO/l = 179 mg CaCO3/l (8-degree German hardness, 10-degree English hardness)
   introduction: |
     Duztec Engineering Pvt. Ltd. designs and manufactures dust-suppression and industrial cleaning systems
     for steel, cement, mining and power plants across India. We thank you for your enquiry and are pleased

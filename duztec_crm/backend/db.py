@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS quotations(
   legacy_probability TEXT DEFAULT '', month TEXT DEFAULT '', type TEXT DEFAULT '',
   introduction TEXT DEFAULT '', scope TEXT DEFAULT '', warranty TEXT DEFAULT '', guarantee TEXT DEFAULT '',
   end_customer TEXT DEFAULT '', additional_description TEXT DEFAULT '', terms_conditions TEXT DEFAULT '',
+  water_quality TEXT DEFAULT '',
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
   UNIQUE(quote_no, rev));
 CREATE TABLE IF NOT EXISTS quotation_items(
@@ -110,6 +111,7 @@ MIGRATIONS = [
     ("orders", "contact_phone", "TEXT DEFAULT ''"),
     ("orders", "contact_email", "TEXT DEFAULT ''"),
     ("customers", "vendor_code", "TEXT DEFAULT ''"),     # Duztec's unique vendor code for the customer
+    ("quotations", "water_quality", "TEXT DEFAULT ''"),  # design-basis water quality, printed on the quotation
 ]
 
 

@@ -135,7 +135,7 @@ def render(q: dict, items: list[dict], customer: dict, contact: dict | None, spe
     sections = "".join(
         f"<h4>{title}</h4>{_paras(q.get(key) or '')}"
         for key, title in (("scope", "Scope of Supply"), ("warranty", "Warranty"),
-                           ("additional_description", "Additional Description"))
+                           ("water_quality", "Water Quality"), ("additional_description", "Additional Description"))
         if (q.get(key) or "").strip())
     terms = (q.get("terms_conditions") or "").strip() or _legacy_terms(q)
     terms_html = f"<h4>Terms &amp; Conditions</h4>{_terms_html(terms)}" if terms else ""
