@@ -45,12 +45,12 @@ quotation_defaults:
   additional_description: ""
   # Water quality (design basis for the offered system) — printed under its own heading on the quotation.
   water_quality: |
-    Content of chlorides: max. 60 mg/l
-    Content of corrosive components: max. 450 mg/l (as long as suitable for mild and stainless steel)
+    content of chlorides: max. 60 mg/l
+    content of corrosive components: max. 450 mg/l (as long as suitable for mild and stainless steel)
     pH-value: 6 - 8
     Solids: <200 microns
     Proportion of solids: Less than approx. 30 mg/l
-    Hardness of Water: 100 mg CaO/l = 179 mg CaCO3/l (8-degree German hardness, 10-degree English hardness)
+    Hardness of Water: 100 mg CaO/l = 179 mg CaCO3/l (8-degree German hardness,10-degree English hardness)
   introduction: |
     Duztec Engineering Pvt. Ltd. designs and manufactures dust-suppression and industrial cleaning systems
     for steel, cement, mining and power plants across India. We thank you for your enquiry and are pleased

@@ -266,6 +266,25 @@ def fix_other_quotation_types() -> int:
     return len(rows)
 
 
+def backfill_water_quality() -> int:
+    """One-time: fill the new Water Quality section on every quotation that has none yet, from the
+    config default, so existing quotations carry the standard design-basis text too. Runs once (guarded
+    by a meta flag) and only touches blank rows, so a quotation cleared on purpose later stays cleared."""
+    default = str(SETTINGS.quotation_defaults.get("water_quality") or "").strip()
+    if not default:
+        return 0
+    con = connect()
+    if con.execute("SELECT value FROM meta WHERE key='water_quality_backfilled'").fetchone():
+        con.close(); return 0
+    cur = con.execute("UPDATE quotations SET water_quality=? WHERE COALESCE(water_quality,'')=''", (default,))
+    con.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('water_quality_backfilled',?)", (now(),))
+    n = cur.rowcount
+    con.commit(); con.close()
+    if n:
+        LOGGER.info("Backfilled the Water Quality section on %d existing quotation(s)", n)
+    return n
+
+
 def backup() -> str:
     SETTINGS.backup.mkdir(parents=True, exist_ok=True)
     dst = SETTINGS.backup / f"crm_{datetime.now():%Y%m%d_%H%M%S}.db"

@@ -55,6 +55,7 @@ def _startup():
     db.backfill_states()
     db.backfill_orders()
     db.fix_other_quotation_types()
+    db.backfill_water_quality()
     db.seed_products()
 
 
