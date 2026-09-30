@@ -48,8 +48,28 @@ def quotations(request: Request, status: str = "", customer_id: int | None = Non
     if type.strip():
         sql += " AND q.type=?"; args.append(type.strip())
     if q.strip():
-        sql += " AND (q.quote_no LIKE ? OR c.name LIKE ?)"; args += [f"%{q.strip()}%", f"%{q.strip()}%"]
+        like = f"%{q.strip()}%"
+        # match quote number, customer, or the product typed on any line item
+        sql += """ AND (q.quote_no LIKE ? OR c.name LIKE ?
+                   OR EXISTS(SELECT 1 FROM quotation_items i WHERE i.quotation_id=q.id AND i.description LIKE ?))"""
+        args += [like, like, like]
     out = [_quote_row(con, r) for r in db.rows(con.execute(sql + " ORDER BY q.id DESC", args))]
+    # What each quotation is for, at a glance: the Products-master code of each line when it is linked,
+    # otherwise the typed line description (which is how the products are actually named today).
+    if out:
+        ids = [r["id"] for r in out]
+        marks = ",".join("?" * len(ids))
+        labels: dict[int, list[str]] = {}
+        for it in con.execute(f"""SELECT qi.quotation_id qid, COALESCE(NULLIF(TRIM(p.code),''), TRIM(qi.description)) lbl
+                                  FROM quotation_items qi LEFT JOIN products p ON p.id=qi.product_id
+                                  WHERE qi.quotation_id IN ({marks}) ORDER BY qi.sr""", ids):
+            if (it["lbl"] or "").strip():
+                labels.setdefault(it["qid"], []).append(it["lbl"].strip())
+        for r in out:
+            labs = labels.get(r["id"], [])
+            r["product_summary"] = labs[0] if labs else ""
+            r["product_extra"] = max(0, len(labs) - 1)
+            r["product_full"] = " · ".join(labs)
     con.close()
     return out
 

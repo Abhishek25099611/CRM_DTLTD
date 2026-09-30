@@ -105,6 +105,7 @@ a.btn{text-decoration:none;display:inline-block}
 .section-card h2 .chev{transition:transform .15s}
 .section-card.collapsed h2 .chev{transform:rotate(-90deg)}
 td.wrap{white-space:pre-line;max-width:420px}
+.prod-cell{max-width:200px;font-weight:600}
 /* Lost reason: a constant-width column that wraps the text into as many lines as needed
    (a fixed width, not just max-width, so the auto-layout table cannot stretch the column). */
 .status-cell{width:150px}

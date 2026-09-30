@@ -346,11 +346,11 @@
           <a class="btn secondary" href="/api/export/quotations.xlsx">Export Excel</a></div>
         <div class="muted small" style="flex-basis:100%">${list.length} quotations${quoteType ? ' of type ' + esc(quoteType) : ''} (excluding superseded revisions). Values are net, excl. GST. Supporting quotations are reference only and are not counted on the dashboard. Click a quotation number for full details.${!isAdmin() ? ' You can edit your own Drafts; once Sent, only an admin can edit or revise.' : ''}</div></section>
       <section class="card"><div class="table-wrap"><table><thead>
-        <tr><th>No.</th><th>Date</th><th>Customer</th><th>Project spec.</th><th class="num">Items</th><th class="num">Net value (excl. GST)</th><th>Status</th><th>RKZ</th><th>Actions</th></tr></thead>
+        <tr><th>No.</th><th>Date</th><th>Customer</th><th>Project spec.</th><th>Product</th><th class="num">Net value (excl. GST)</th><th>Status</th><th>RKZ</th><th>Actions</th></tr></thead>
         <tbody>${list.map(q => `<tr>
           <td><button class="link-btn" data-detail="${q.id}">${esc(q.quote_no)}${q.rev ? '-' + q.rev : ''}</button></td><td>${esc(q.date)}</td><td class="wrap">${esc(q.customer)}${q.end_customer_shown ? `<div class="muted small">→ ${esc(q.end_customer_shown)}</div>` : ''}${q.contact ? `<div class="muted small">${esc(q.contact)}</div>` : ''}</td>
           <td>${typePill(q.type)}</td>
-          <td class="num">${q.item_count}</td><td class="num" title="Total incl. GST: ${inr(q.total)}">${inr(q.net)}</td><td class="status-cell">${pill(q.status)}${q.lost_reason ? `<div class="reason-clip" title="${esc(q.lost_reason)}">${esc(q.lost_reason)}</div>` : ''}</td>
+          <td class="wrap prod-cell" title="${esc(q.product_full || '')}${q.item_count > 1 ? ` (${q.item_count} line items)` : ''}">${q.product_summary ? esc(q.product_summary) : '<span class="muted">—</span>'}${q.product_extra ? ` <span class="muted small">+${q.product_extra}</span>` : ''}</td><td class="num" title="Total incl. GST: ${inr(q.total)}">${inr(q.net)}</td><td class="status-cell">${pill(q.status)}${q.lost_reason ? `<div class="reason-clip" title="${esc(q.lost_reason)}">${esc(q.lost_reason)}</div>` : ''}</td>
           <td>${esc(q.salesperson || '')}${isAdmin() ? ` <button class="btn small" data-qrkz="${q.id}" data-cur="${esc(q.salesperson || '')}" title="Assign RKZ" data-write>✎</button>` : ''}</td>
           <td class="actions-cell">
             <a class="btn small secondary" target="_blank" href="/api/quotations/${q.id}/print">Print</a>
