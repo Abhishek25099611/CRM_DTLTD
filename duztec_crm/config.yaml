@@ -12,7 +12,7 @@ company:                       # used on the quotation letterhead — CONFIRM wi
   email: "sales@duztec.in"
   phone: ""
   home_state: "Maharashtra"    # intra-state => CGST+SGST, else IGST
-  bank_details: "Bank: ____ · A/c No: ____ · IFSC: ____ · Branch: ____"
+  bank_details: "A/c Name: Duztec Engineering Pvt. Ltd. · Bank: HDFC Bank · A/c No: 50200035315205 · IFSC: HDFC0002503"
 
 numbering:
   enquiry_prefix: "ENQ-2627-"  # ENQ-2627-001 ...
