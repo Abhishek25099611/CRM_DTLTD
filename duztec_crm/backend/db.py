@@ -241,6 +241,27 @@ def backfill_orders() -> int:
     return len(contacts) + len(products)
 
 
+def fix_other_quotation_types() -> int:
+    """One-time: quotations stamped 'Other' are a leftover from the window when the project-specification
+    list was Tender/Technical/Supporting/Other and a Normal/Budgetary/Repeat-Order enquiry fell back to
+    'Other'. 'Other' is no longer a valid option, so reinterpret every such row: use the enquiry's type
+    when it is a known option, otherwise Normal. Idempotent (no 'Other' rows remain after it runs)."""
+    valid = set(SETTINGS.quotation_types)
+    if "Other" in valid:
+        return 0                              # 'Other' is a live option in this config — leave the data alone
+    con = connect()
+    rows = con.execute("""SELECT q.id, e.priority enq_type FROM quotations q
+                          LEFT JOIN enquiries e ON e.id=q.enquiry_id WHERE q.type='Other'""").fetchall()
+    for r in rows:
+        et = (r["enq_type"] or "").strip()
+        con.execute("UPDATE quotations SET type=?, updated_at=? WHERE id=?",
+                    (et if et in valid else "Normal", now(), r["id"]))
+    con.commit(); con.close()
+    if rows:
+        LOGGER.info("Reassigned %d quotation(s) from the retired 'Other' project specification", len(rows))
+    return len(rows)
+
+
 def backup() -> str:
     SETTINGS.backup.mkdir(parents=True, exist_ok=True)
     dst = SETTINGS.backup / f"crm_{datetime.now():%Y%m%d_%H%M%S}.db"

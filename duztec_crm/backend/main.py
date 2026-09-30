@@ -54,6 +54,7 @@ def _startup():
     LOGGER.info("Startup import: %s", res)
     db.backfill_states()
     db.backfill_orders()
+    db.fix_other_quotation_types()
     db.seed_products()
 
 
