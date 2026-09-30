@@ -401,7 +401,7 @@
         <tbody>${d.items.map(i => `<tr><td>${i.sr}</td><td class="wrap">${esc(i.description)}</td><td>${esc(i.hsn)}</td><td class="num">${i.qty}</td><td>${esc(i.unit)}</td><td class="num">${inr(i.rate)}</td><td class="num">${inr(net(i))}</td><td class="num">${i.gst_pct}%</td><td class="num">${inr(net(i) * (1 + (i.gst_pct || 0) / 100))}</td></tr>`).join('')}</tbody></table></div>
         <div class="totals-box">${d.discount_pct ? `<span>Subtotal: ${money(d.subtotal)}</span><span>Discount ${d.discount_pct}%</span>` : ''}<b>Net total (excl. GST): ${money(d.net)}</b><span>GST: ${money(d.gst)}</span><span class="muted">Total incl. GST: ${money(d.total)}</span></div></div>
       <div class="detail-section"><div class="detail-grid">
-        ${row('Scope of supply', esc(d.scope))}${row('Warranty', esc(d.warranty))}
+        ${row('Scope of supply', esc(d.scope))}${row('Warranty / Guarantee', esc(d.warranty))}
         ${row('Water quality', esc(d.water_quality))}${row('Additional description', esc(d.additional_description))}
         ${row('Introduction', esc(d.introduction))}
         ${!d.terms_conditions && (d.payment_terms || d.delivery_terms || d.guarantee || d.notes) ? row('Payment terms', esc(d.payment_terms)) + row('Delivery terms', esc(d.delivery_terms)) + row('Guarantee', esc(d.guarantee)) + row('Notes', esc(d.notes)) : ''}</div>
@@ -457,7 +457,7 @@
       </div>
       <div class="modal-form">
         ${sec('q-scope', 'Scope of supply', q.scope || d.scope)}
-        ${sec('q-warranty', 'Warranty', q.warranty || d.warranty)}
+        ${sec('q-warranty', 'Warranty / Guarantee', q.warranty || d.warranty)}
         ${sec('q-water', 'Water Quality <span class="muted small">— design-basis water parameters; printed under its own heading</span>', q.water_quality || (existing ? '' : d.water_quality), 6)}
         ${sec('q-adddesc', 'Additional description <span class="muted small">— anything specific to this offer (optional)</span>', q.additional_description || (existing ? '' : d.additional_description))}
         ${sec('q-terms', 'Terms &amp; Conditions <span class="muted small">— one term per line; the print numbers them 1, 2, 3…</span>', q.terms_conditions || (existing ? legacyTerms(q) : d.terms_conditions), 8)}

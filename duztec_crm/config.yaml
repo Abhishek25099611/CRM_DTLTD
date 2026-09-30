@@ -59,9 +59,14 @@ quotation_defaults:
     Design, manufacture, supply, testing and commissioning of the equipment listed above, including standard
     accessories and documentation. Civil work, power supply at site, water supply and any items not
     expressly listed are excluded.
-  warranty: |
-    12 months from the date of commissioning or 18 months from the date of dispatch, whichever is earlier,
-    against manufacturing defects. Consumables and damage due to misuse are not covered.
+  warranty: >
+    Duztec machines/systems carry a warranty for 12 months from the date of commissioning or 18
+    months from date of dispatch whichever is earlier, against any manufacturing defects. Any defect
+    arising during the warranty period due to defective materials used will be rectified free of cost
+    within reasonable time. Our warranty doesn't include Improper or inadequate use, Faulty
+    installation / start-up by the purchaser or third parties, Natural wear and tear, Improper
+    storage, Faulty or negligent handling, Excessive loading, Unsuitable operating media and
+    electrochemical or electrical factors.
 
 uploads:                          # customer documents, PO PDFs, quotation attachments
   max_mb: 25
