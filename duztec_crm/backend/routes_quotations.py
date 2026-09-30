@@ -18,8 +18,8 @@ LEGACY_TEXT = ("delivery_terms", "payment_terms", "notes", "guarantee")   # pre-
 
 
 def _project_spec(con, q: QuotationIn) -> str:
-    """Project specification (quotation type). Blank -> derived from the enquiry: Tender / Supporting carry
-    over, anything else starts as Other. Legacy values on existing quotations are left as they are."""
+    """Project specification (quotation type). Blank -> carried over from the enquiry's type when it is a
+    known option; a standalone quotation defaults to Normal. Legacy values on existing quotations are kept."""
     if q.type.strip():
         return q.type.strip()
     if q.enquiry_id:
@@ -27,7 +27,7 @@ def _project_spec(con, q: QuotationIn) -> str:
         et = (enq["priority"] if enq else "") or ""
         if et in SETTINGS.quotation_types:
             return et
-    return SETTINGS.quotation_types[-1] if SETTINGS.quotation_types else "Other"
+    return "Normal" if "Normal" in SETTINGS.quotation_types else (SETTINGS.quotation_types[0] if SETTINGS.quotation_types else "Normal")
 
 
 @router.get("/api/quotations")

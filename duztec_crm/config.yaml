@@ -22,9 +22,10 @@ numbering:
 
 enquiry_types: [Normal, Tender, Technical, Budgetary, Supporting, Repeat Order]   # "Enquiry Type" on the enquiry form
 
-# "Project specification" on the quotation. Tender / Supporting enquiries keep their type; every other
-# enquiry type starts as "Other". Supporting quotations are reference work: excluded from every ₹ figure.
-quotation_types: [Tender, Technical, Supporting, Other]
+# "Project specification" on the quotation — same options as enquiry_types above. A quotation created from
+# an enquiry carries that enquiry's type across; a standalone quotation defaults to Normal.
+# Supporting quotations are reference work: excluded from every ₹ figure, count and win rate on the dashboard.
+quotation_types: [Normal, Tender, Technical, Budgetary, Supporting, Repeat Order]
 
 quotation_defaults:
   validity_days: 30

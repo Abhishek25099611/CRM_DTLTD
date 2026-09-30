@@ -434,7 +434,7 @@
     try { PRODUCTS = await api('/api/products?active_only=1'); } catch (e) { PRODUCTS = []; }
     const sec = (id, label, val, rows = 3) => `<div class="full"><label>${label}</label><textarea id="${id}" rows="${rows}">${esc(val || '')}</textarea></div>`;
     const qtypes = CFG.quotation_types || [];
-    const startType = q.type || (enq && qtypes.includes(enq.priority) ? enq.priority : (qtypes[qtypes.length - 1] || 'Other'));
+    const startType = q.type || (enq && qtypes.includes(enq.priority) ? enq.priority : (qtypes.includes('Normal') ? 'Normal' : (qtypes[0] || 'Normal')));
     openModal(existing ? `Edit ${q.quote_no}${q.rev ? '-' + q.rev : ''}` : 'New Quotation' + (enq ? ' — from ' + enq.enq_no : ''), `
       <div class="modal-form">
         <div class="full"><label>Customer</label><select id="q-cust">${custOptions(q.customer_id || (enq && enq.customer_id))}</select></div>
