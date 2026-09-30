@@ -330,24 +330,32 @@
   }
 
   // ================= QUOTATIONS =================
-  let quoteSearch = '', quoteType = '';
+  // Financial year (Apr–Mar) of a YYYY-MM-DD date -> its starting year, e.g. 2026 for 2026-04..2027-03
+  const fyStartYear = d => { if (!d || d.length < 7) return null; const y = +d.slice(0, 4), m = +d.slice(5, 7); return m >= 4 ? y : y - 1; };
+  const fyLabel = s => s == null ? '' : `FY ${s}-${String((s + 1) % 100).padStart(2, '0')}`;
+  let quoteSearch = '', quoteType = '', quoteYear = '';
   async function renderQuotes() {
     await loadCustomers();
     const qp = new URLSearchParams(); if (quoteSearch) qp.set('q', quoteSearch); if (quoteType) qp.set('type', quoteType);
     const list = await api('/api/quotations' + (qp.toString() ? '?' + qp : ''));
+    const years = [...new Set(list.map(q => fyStartYear(q.date)).filter(y => y != null))];
+    if (quoteYear && !years.includes(+quoteYear)) years.push(+quoteYear);   // keep the chosen year selectable
+    years.sort((a, b) => b - a);
+    const shown = quoteYear ? list.filter(q => fyStartYear(q.date) === +quoteYear) : list;
     const canEditRow = q => isAdmin() || q.status === 'draft';   // engineers: own drafts only (server enforces too)
     $('view').innerHTML = `
       <section class="card filters">
         <div class="filter grow"><label for="q-search">Search quotation no. or customer</label><input id="q-search" value="${esc(quoteSearch)}" placeholder="e.g. Q00566 or JSW"></div>
         <div class="filter"><label for="q-type-filter">Project specification</label><select id="q-type-filter"><option value="">All types</option>${(CFG.quotation_types || []).map(t => `<option ${t === quoteType ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
+        <div class="filter"><label for="q-year-filter">Financial year</label><select id="q-year-filter"><option value="">All years</option>${years.map(y => `<option value="${y}" ${String(y) === quoteYear ? 'selected' : ''}>${fyLabel(y)}</option>`).join('')}</select></div>
         <div class="filter-actions">
           <button class="btn" id="btn-q-search">Search</button>
           <button class="btn primary" id="btn-new-q" data-write>+ New Quotation</button>
           <a class="btn secondary" href="/api/export/quotations.xlsx">Export Excel</a></div>
-        <div class="muted small" style="flex-basis:100%">${list.length} quotations${quoteType ? ' of type ' + esc(quoteType) : ''} (excluding superseded revisions). Values are net, excl. GST. Supporting quotations are reference only and are not counted on the dashboard. Click a quotation number for full details.${!isAdmin() ? ' You can edit your own Drafts; once Sent, only an admin can edit or revise.' : ''}</div></section>
+        <div class="muted small" style="flex-basis:100%">${shown.length} quotations${quoteType ? ' of type ' + esc(quoteType) : ''}${quoteYear ? ' in ' + fyLabel(+quoteYear) + ' (Apr–Mar)' : ''} (excluding superseded revisions). Values are net, excl. GST. Supporting quotations are reference only and are not counted on the dashboard. Click a quotation number for full details.${!isAdmin() ? ' You can edit your own Drafts; once Sent, only an admin can edit or revise.' : ''}</div></section>
       <section class="card"><div class="table-wrap"><table><thead>
         <tr><th>No.</th><th>Date</th><th>Customer</th><th>Project spec.</th><th>Product</th><th class="num">Net value (excl. GST)</th><th>Status</th><th>RKZ</th><th>Actions</th></tr></thead>
-        <tbody>${list.map(q => `<tr>
+        <tbody>${shown.map(q => `<tr>
           <td><button class="link-btn" data-detail="${q.id}">${esc(q.quote_no)}${q.rev ? '-' + q.rev : ''}</button></td><td>${esc(q.date)}</td><td class="wrap">${esc(q.customer)}${q.end_customer_shown ? `<div class="muted small">→ ${esc(q.end_customer_shown)}</div>` : ''}${q.contact ? `<div class="muted small">${esc(q.contact)}</div>` : ''}</td>
           <td>${typePill(q.type)}</td>
           <td class="wrap prod-cell" title="${esc(q.product_full || '')}${q.item_count > 1 ? ` (${q.item_count} line items)` : ''}">${q.product_summary ? esc(q.product_summary) : '<span class="muted">—</span>'}${q.product_extra ? ` <span class="muted small">+${q.product_extra}</span>` : ''}</td><td class="num" title="Total incl. GST: ${inr(q.total)}">${inr(q.net)}</td><td class="status-cell">${pill(q.status)}${q.lost_reason ? `<div class="reason-clip" title="${esc(q.lost_reason)}">${esc(q.lost_reason)}</div>` : ''}</td>
@@ -363,6 +371,7 @@
           </td></tr>`).join('') || '<tr class="empty"><td colspan="9">No quotations match</td></tr>'}</tbody></table></div></section>`;
     $('btn-q-search').onclick = () => { quoteSearch = $('q-search').value.trim(); renderQuotes(); };
     $('q-type-filter').onchange = () => { quoteType = $('q-type-filter').value; renderQuotes(); };
+    $('q-year-filter').onchange = () => { quoteYear = $('q-year-filter').value; renderQuotes(); };
     $('q-search').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-q-search').click(); });
     $('btn-new-q').onclick = () => quoteForm(null);
     document.querySelectorAll('[data-detail]').forEach(b => b.onclick = () => quoteDetail(+b.dataset.detail));
