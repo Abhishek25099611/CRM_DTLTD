@@ -1,9 +1,9 @@
 """Customers and contacts (many contacts per customer)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
-from . import db
+from . import auth, db
 from .schemas import ContactIn, CustomerIn
 
 router = APIRouter()
@@ -68,6 +68,35 @@ def edit_customer(cid: int, c: CustomerIn):
                    WHERE id=?""",
                 (c.name.strip(), c.gstin, c.address, c.state, c.pincode.strip(), c.segment,
                  c.end_customer.strip(), c.vendor_code.strip(), cid))
+    con.commit(); con.close()
+    return {"ok": True}
+
+
+@router.delete("/api/customers/{cid}")
+def delete_customer(cid: int, request: Request):
+    """Admin only. Refused if the customer still has enquiries, quotations, orders or documents —
+    those must be removed/reassigned first. Its contacts (unused once the customer is gone) are deleted with it."""
+    auth.require_admin(request)
+    con = db.connect()
+    cust = con.execute("SELECT name FROM customers WHERE id=?", (cid,)).fetchone()
+    if not cust:
+        con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": f"customer {cid}"})
+    counts = {
+        "enquiries": con.execute("SELECT COUNT(*) FROM enquiries WHERE customer_id=?", (cid,)).fetchone()[0],
+        "quotations": con.execute("SELECT COUNT(*) FROM quotations WHERE customer_id=?", (cid,)).fetchone()[0],
+        "orders": con.execute("SELECT COUNT(*) FROM orders WHERE customer_id=?", (cid,)).fetchone()[0],
+        "documents": con.execute("SELECT COUNT(*) FROM documents WHERE entity_type='customer' AND entity_id=?", (cid,)).fetchone()[0],
+    }
+    blocking = {k: v for k, v in counts.items() if v}
+    if blocking:
+        con.close()
+        raise HTTPException(409, {"error_type": "in_use",
+                                  "detail": f"Cannot delete {cust['name']} — it still has "
+                                            + ", ".join(f"{v} {k}" for k, v in blocking.items())
+                                            + ". Remove or reassign those first."})
+    con.execute("DELETE FROM contacts WHERE customer_id=?", (cid,))
+    con.execute("DELETE FROM customers WHERE id=?", (cid,))
+    db.log_activity(con, "customer", cid, "deleted", cust["name"])
     con.commit(); con.close()
     return {"ok": True}
 

@@ -699,7 +699,7 @@
       <a class="btn secondary" href="/api/export/customers.xlsx">Export customers</a><a class="btn secondary" href="/api/export/contacts.xlsx">Export contacts</a></div>
       <div class="muted small" style="flex-basis:100%">${list.length} customer${list.length === 1 ? '' : 's'}${custSearch ? ` matching "${esc(custSearch)}"` : ''}</div></section>
       <section class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Vendor code</th><th>End customer</th><th>Contacts</th><th>Files</th><th>GSTIN</th><th>State</th><th>Pincode</th><th>Segment</th><th class="num">Enquiries</th><th class="num">Quotes</th><th class="num">Order value</th></tr></thead>
-      <tbody>${list.map(c => `<tr><td class="wrap"><b>${esc(c.name)}</b></td>
+      <tbody>${list.map(c => `<tr><td class="wrap"><b>${esc(c.name)}</b>${isAdmin() ? ` <button class="btn small danger" data-delc="${c.id}" data-name="${esc(c.name)}" title="Delete customer (admin)">🗑</button>` : ''}</td>
         <td>${c.vendor_code ? esc(c.vendor_code) : '<span class="muted">—</span>'} <button class="btn small" data-vcode="${c.id}" title="Edit Duztec vendor code" data-write>✎</button></td>
         <td class="wrap">${esc(c.end_customer || '—')} <button class="btn small" data-endc="${c.id}" title="Edit end customer" data-write>✎</button></td>
         <td><button class="btn small secondary" data-contacts="${c.id}">${c.contact_count || 0} contact${c.contact_count === 1 ? '' : 's'}</button></td>
@@ -716,6 +716,11 @@
       openModal('Duztec vendor code — ' + c.name, `<div class="modal-form"><div class="full"><label>Vendor code <span class="muted small">(unique across customers; blank to clear)</span></label><input id="vc-val" value="${esc(c.vendor_code || '')}" placeholder="Duztec's code for this customer"></div>
         <div class="full"><button class="btn primary" id="vc-save">Save</button></div></div>`);
       $('vc-save').onclick = async () => { try { await api('/api/customers/' + c.id, { method: 'PUT', body: custBody(c, { vendor_code: $('vc-val').value.trim() }) }); closeModal(); flash('Vendor code updated'); renderCustomers(); } catch (e) { flash(e.message, false); } };
+    });
+    document.querySelectorAll('[data-delc]').forEach(b => b.onclick = async () => {
+      if (!confirm('Delete customer "' + b.dataset.name + '"?\n\nThis cannot be undone. It is only allowed if the customer has no enquiries, quotations, orders or files.')) return;
+      try { await api('/api/customers/' + b.dataset.delc, { method: 'DELETE' }); flash('Customer deleted'); renderCustomers(); }
+      catch (e) { flash(e.message, false); }
     });
     $('btn-new-c').onclick = () => customerForm();
     document.querySelectorAll('[data-contacts]').forEach(b => b.onclick = () => contactsPanel(list.find(x => x.id == b.dataset.contacts)));
