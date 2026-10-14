@@ -106,7 +106,7 @@
   function openModal(title, html) { $('modal-title').textContent = title; $('modal-body').innerHTML = html; $('modal').classList.remove('hidden'); }
   function closeModal() { $('modal').classList.add('hidden'); }
   $('modal-close').onclick = closeModal;
-  $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
+  // Only the Close button dismisses a popup — clicking the backdrop must NOT close it (avoids losing a half-filled form).
 
   async function loadCustomers() { customersCache = await api('/api/customers'); return customersCache; }
   const custOptions = sel => '<option value="">— select customer —</option>' + customersCache.map(c => `<option value="${c.id}" ${c.id == sel ? 'selected' : ''}>${esc(c.name)}${c.end_customer ? ' → ' + esc(c.end_customer) : ''}</option>`).join('');
@@ -233,40 +233,55 @@
   }
 
   // ================= ENQUIRIES =================
+  let enqYear = '';
   async function renderEnquiries() {
     await loadCustomers();
-    const list = await api('/api/enquiries');
+    const all = await api('/api/enquiries');
+    const list = fyApply(all, e => e.date, enqYear);
     const cols = [['new', 'New'], ['qualified', 'Qualified'], ['quoted', 'Quoted'], ['won,lost,dropped', 'Closed']];
     const breached = list.filter(e => e.sla === 'breach').length;
     $('view').innerHTML = `
-      <section class="card filters"><div class="filter-actions">
+      <section class="card filters">
+        ${fyFilter('enq-year', all, e => e.date, enqYear)}
+        <div class="filter-actions">
         <button class="btn primary" id="btn-new-enq" data-write>+ New Enquiry</button>
         <a class="btn secondary" href="/api/export/enquiries.xlsx">Export Excel</a></div>
-        <div class="muted small">Click a card for actions. ${list.length} enquiries total${breached ? ` · <span class="sla sla-breach">${breached} past the 48-h quotation limit</span>` : ''}.</div></section>
+        <div class="muted small" style="flex-basis:100%">Click a card for actions. ${list.length} enquiries${enqYear ? ' in ' + fyLabel(+enqYear) : ' total'}${breached ? ` · <span class="sla sla-breach">${breached} past the 48-h quotation limit</span>` : ''}.</div></section>
       <div class="kanban">${cols.map(([k, t]) => { const items = list.filter(e => k.split(',').includes(e.status));
         return `<div class="kcol"><h3>${t}<span>${items.length}</span></h3>${items.map(e => `
           <div class="kcard type-${esc((e.priority || 'Normal').replace(/\s+/g, ''))}" data-id="${e.id}"><b>${esc(e.enq_no)} ${pill(e.status)} ${typePill(e.priority)}</b>
           ${esc(e.customer)}${e.end_customer ? ' <span class="muted">→ ' + esc(e.end_customer) + '</span>' : ''}<div class="muted">${esc(e.system)} · ${esc(e.date)}${e.expected_value ? ' · ' + money(e.expected_value) : ''}${e.next_followup ? ' · FU ' + esc(e.next_followup) : ''} ${slaBadge(e)}</div>
           ${e.technical ? `<div class="muted small" title="${esc(e.technical)}">⚙ ${esc(e.technical.length > 90 ? e.technical.slice(0, 90) + '…' : e.technical)}</div>` : ''}</div>`).join('')}</div>`; }).join('')}</div>`;
+    $('enq-year').onchange = () => { enqYear = $('enq-year').value; renderEnquiries(); };
     $('btn-new-enq').onclick = newEnquiryForm;
     document.querySelectorAll('.kcard').forEach(el => el.onclick = () => enquiryActions(list.find(x => x.id == el.dataset.id)));
   }
 
-  function newEnquiryForm() {
+  async function newEnquiryForm() {
+    const codes = isAdmin() ? await rkzCodes() : [];
+    let prods = []; try { prods = await api('/api/products?active_only=1'); } catch (e) { prods = []; }
+    const prodOpts = '<option value="">— pick a product (optional) —</option>' + prods.map(p => `<option value="${p.id}">${esc(p.code)}${p.name && p.name !== p.code ? ' — ' + esc(p.name) : ''}</option>`).join('');
     openModal('New Enquiry', `<div class="modal-form">
       <div><label>Date</label><input type="date" id="f-date" value="${today()}"></div>
       <div><label>Source</label><select id="f-source"><option>Call</option><option>Email</option><option>Visit</option><option>Exhibition</option><option>Reference</option><option>Website</option></select></div>
       <div class="full"><label>Customer</label><select id="f-cust">${custOptions()}</select>
         <div class="muted small" style="margin-top:4px">Not listed? <a href="#" id="f-addcust" class="link">Add new customer</a></div></div>
       <div class="full"><label>Contact person</label><select id="f-contact"><option value="">—</option></select></div>
+      <div><label>Product <span class="muted small">— pick from the Products master to fill in the details</span></label><select id="f-prod">${prodOpts}</select></div>
       <div><label>System / product</label><input id="f-system" placeholder="e.g. MB-50, SFDS System"></div>
       <div><label>Expected value (₹)</label><input type="number" id="f-value" min="0"></div>
       <div class="full"><label>Requirement</label><textarea id="f-req"></textarea></div>
-      <div><label>Salesperson (RKZ)</label><input id="f-sp" placeholder="e.g. RV" value="${!isAdmin() ? esc(ME.rkz) : ''}" ${!isAdmin() ? 'readonly style="background:var(--gray)"' : ''}></div>
+      <div><label>Salesperson (RKZ)</label>${isAdmin() ? rkzSelect('f-sp', codes, '') : `<input id="f-sp" value="${esc(ME.rkz)}" readonly style="background:var(--gray)">`}</div>
       <div><label>Enquiry type</label><select id="f-type">${typeOptions()}</select></div>
       <div class="full"><label>Technical <span class="muted small">— important technical requirement or consideration for this enquiry</span></label><textarea id="f-tech" rows="3" placeholder="e.g. 30 m throw, 415 V 3-ph supply at site, dust load 200 mg/Nm³"></textarea></div>
       <div class="full muted small">The 48-working-hour quotation timer starts when you save this enquiry. Details (including Technical) can be edited later from the enquiry card.</div>
       <div class="full"><button class="btn primary" id="f-save">Save Enquiry</button></div></div>`);
+    $('f-prod').onchange = () => {   // autofill the enquiry fields from the chosen product
+      const p = prods.find(x => x.id == $('f-prod').value); if (!p) return;
+      $('f-system').value = p.name || p.code;
+      if (p.specification && !$('f-tech').value.trim()) $('f-tech').value = p.specification;
+      if (p.rate > 0 && !$('f-value').value) $('f-value').value = p.rate;
+    };
     $('f-cust').onchange = async () => { const cid = $('f-cust').value; if (!cid) return;
       const cs = await api('/api/contacts?customer_id=' + cid);
       $('f-contact').innerHTML = '<option value="">—</option>' + cs.map(c => `<option value="${c.id}">${contactLabel(c)}</option>`).join(''); };
@@ -333,7 +348,25 @@
   // Financial year (Apr–Mar) of a YYYY-MM-DD date -> its starting year, e.g. 2026 for 2026-04..2027-03
   const fyStartYear = d => { if (!d || d.length < 7) return null; const y = +d.slice(0, 4), m = +d.slice(5, 7); return m >= 4 ? y : y - 1; };
   const fyLabel = s => s == null ? '' : `FY ${s}-${String((s + 1) % 100).padStart(2, '0')}`;
-  let quoteSearch = '', quoteType = '', quoteYear = '';
+  // A reusable Financial-year <select> for any tab: builds options from the rows' dates, keeps the chosen year selectable.
+  const fyFilter = (id, list, dateOf, selected) => {
+    const years = [...new Set(list.map(x => fyStartYear(dateOf(x))).filter(y => y != null))];
+    if (selected && !years.includes(+selected)) years.push(+selected);
+    years.sort((a, b) => b - a);
+    return `<div class="filter"><label for="${id}">Financial year</label><select id="${id}"><option value="">All years</option>${years.map(y => `<option value="${y}" ${String(y) === selected ? 'selected' : ''}>${fyLabel(y)}</option>`).join('')}</select></div>`;
+  };
+  const fyApply = (list, dateOf, selected) => selected ? list.filter(x => fyStartYear(dateOf(x)) === +selected) : list;
+  // Active RKZ codes (admins only; engineers are scoped to their own). Cached for the session.
+  let RKZ_CODES = null;
+  async function rkzCodes() {
+    if (RKZ_CODES) return RKZ_CODES;
+    if (!isAdmin()) return [];
+    const users = await api('/api/auth/users').catch(() => []);
+    RKZ_CODES = users.filter(u => u.rkz && u.active).map(u => ({ rkz: u.rkz, who: u.name || u.email }));
+    return RKZ_CODES;
+  }
+  const rkzSelect = (id, codes, selected) => `<select id="${id}"><option value="">— None / assign later —</option>${codes.map(c => `<option value="${esc(c.rkz)}" ${c.rkz === (selected || '').toUpperCase() ? 'selected' : ''}>${esc(c.rkz)} — ${esc(c.who)}</option>`).join('')}</select>`;
+  let quoteSearch = '', quoteType = '', quoteYear = '', quoteRkz = '';
   async function renderQuotes() {
     await loadCustomers();
     const qp = new URLSearchParams(); if (quoteSearch) qp.set('q', quoteSearch); if (quoteType) qp.set('type', quoteType);
@@ -341,13 +374,17 @@
     const years = [...new Set(list.map(q => fyStartYear(q.date)).filter(y => y != null))];
     if (quoteYear && !years.includes(+quoteYear)) years.push(+quoteYear);   // keep the chosen year selectable
     years.sort((a, b) => b - a);
-    const shown = quoteYear ? list.filter(q => fyStartYear(q.date) === +quoteYear) : list;
+    const rkzs = [...new Set(list.map(q => (q.salesperson || '').toUpperCase()).filter(Boolean))].sort();
+    if (quoteRkz && !rkzs.includes(quoteRkz)) rkzs.push(quoteRkz);
+    const shown = list.filter(q => (!quoteYear || fyStartYear(q.date) === +quoteYear)
+                                && (!quoteRkz || (q.salesperson || '').toUpperCase() === quoteRkz));
     const canEditRow = q => isAdmin() || q.status === 'draft';   // engineers: own drafts only (server enforces too)
     $('view').innerHTML = `
       <section class="card filters">
         <div class="filter grow"><label for="q-search">Search quotation no. or customer</label><input id="q-search" value="${esc(quoteSearch)}" placeholder="e.g. Q00566 or JSW"></div>
         <div class="filter"><label for="q-type-filter">Project specification</label><select id="q-type-filter"><option value="">All types</option>${(CFG.quotation_types || []).map(t => `<option ${t === quoteType ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
         <div class="filter"><label for="q-year-filter">Financial year</label><select id="q-year-filter"><option value="">All years</option>${years.map(y => `<option value="${y}" ${String(y) === quoteYear ? 'selected' : ''}>${fyLabel(y)}</option>`).join('')}</select></div>
+        ${isAdmin() && (rkzs.length || quoteRkz) ? `<div class="filter"><label for="q-rkz-filter">RKZ</label><select id="q-rkz-filter"><option value="">All RKZ</option>${rkzs.map(r => `<option value="${esc(r)}" ${r === quoteRkz ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></div>` : ''}
         <div class="filter-actions">
           <button class="btn" id="btn-q-search">Search</button>
           <button class="btn primary" id="btn-new-q" data-write>+ New Quotation</button>
@@ -372,6 +409,7 @@
     $('btn-q-search').onclick = () => { quoteSearch = $('q-search').value.trim(); renderQuotes(); };
     $('q-type-filter').onchange = () => { quoteType = $('q-type-filter').value; renderQuotes(); };
     $('q-year-filter').onchange = () => { quoteYear = $('q-year-filter').value; renderQuotes(); };
+    { const rf = $('q-rkz-filter'); if (rf) rf.onchange = () => { quoteRkz = rf.value; renderQuotes(); }; }
     $('q-search').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-q-search').click(); });
     $('btn-new-q').onclick = () => quoteForm(null);
     document.querySelectorAll('[data-detail]').forEach(b => b.onclick = () => quoteDetail(+b.dataset.detail));
@@ -442,6 +480,7 @@
     const d = CFG.quotation_defaults;
     const q = existing || {};
     try { PRODUCTS = await api('/api/products?active_only=1'); } catch (e) { PRODUCTS = []; }
+    const codes = isAdmin() ? await rkzCodes() : [];
     const sec = (id, label, val, rows = 3) => `<div class="full"><label>${label}</label><textarea id="${id}" rows="${rows}">${esc(val || '')}</textarea></div>`;
     const qtypes = CFG.quotation_types || [];
     const startType = q.type || (enq && qtypes.includes(enq.priority) ? enq.priority : (qtypes.includes('Normal') ? 'Normal' : (qtypes[0] || 'Normal')));
@@ -453,7 +492,7 @@
         <div><label>Validity (days)</label><input type="number" id="q-valid" value="${q.validity_days || d.validity_days || 30}"></div>
         <div><label>GST mode</label><select id="q-gst"><option value="intra" ${q.gst_mode !== 'inter' ? 'selected' : ''}>Within ${esc(CFG.company.home_state || 'state')} (CGST+SGST)</option><option value="inter" ${q.gst_mode === 'inter' ? 'selected' : ''}>Other state (IGST)</option></select></div>
         <div><label>Discount %</label><input type="number" id="q-disc" value="${q.discount_pct || 0}" min="0" step="any"></div>
-        <div><label>Salesperson (RKZ)</label><input id="q-sp" value="${!isAdmin() ? esc(ME.rkz) : esc(q.salesperson || (enq && enq.salesperson) || '')}" ${!isAdmin() ? 'readonly style="background:var(--gray)"' : ''}></div>
+        <div><label>Salesperson (RKZ)</label>${isAdmin() ? rkzSelect('q-sp', codes, q.salesperson || (enq && enq.salesperson) || '') : `<input id="q-sp" value="${esc(ME.rkz)}" readonly style="background:var(--gray)">`}</div>
         <div><label>Project specification</label><select id="q-type">${qtypeOptions(startType)}</select></div>
         <div class="full"><label>End customer <span class="muted small">— plant / end user; pre-filled from the customer master, editable per quotation</span></label><input id="q-endc" value="${esc(q.end_customer || (enq && enq.end_customer) || '')}" data-auto="${q.end_customer ? '' : '1'}"></div>
         ${sec('q-intro', 'Introduction (printed before the price table)', q.introduction || d.introduction)}
@@ -551,14 +590,17 @@
   // Supporting (reference-only) quotations are neither counted nor shown in the Won / Lost views unless asked for
   const showSup = { orders: false, lost: false };
   const supToggle = (key, n) => `<label class="muted small" style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="sup-${key}" ${showSup[key] ? 'checked' : ''}> Show ${n} from supporting quotations (reference only, not counted)</label>`;
+  let orderYear = '';
+  const orderDate = o => o.po_date || o.created_at;
   async function renderOrders() {
-    const all = await api('/api/orders');
+    const all0 = await api('/api/orders');
+    const all = fyApply(all0, orderDate, orderYear);
     const isSup = o => o.quote_type === 'Supporting';
     const real = all.filter(o => !isSup(o)), nSup = all.length - real.length;
     const list = showSup.orders ? all : real;
     const total = real.reduce((a, o) => a + (o.value || 0), 0);
-    $('view').innerHTML = `<section class="card"><h2>Orders <span class="muted small">(${real.length} · ${money(total)})</span></h2>
-      <div class="filter-actions" style="margin-bottom:10px"><a class="btn secondary" href="/api/export/orders.xlsx">Export Excel</a>${nSup ? supToggle('orders', nSup) : ''}</div>
+    $('view').innerHTML = `<section class="card"><h2>Orders <span class="muted small">(${real.length} · ${money(total)}${orderYear ? ' · ' + fyLabel(+orderYear) : ''})</span></h2>
+      <div class="filter-actions" style="margin-bottom:10px">${fyFilter('order-year', all0, orderDate, orderYear)}<a class="btn secondary" href="/api/export/orders.xlsx">Export Excel</a>${nSup ? supToggle('orders', nSup) : ''}</div>
       <div class="table-wrap"><table><thead><tr><th>SO No.</th><th>PO No.</th><th>PO Date</th><th>Customer</th><th>Contact person</th><th>Product</th><th>Quote</th><th>RKZ</th><th class="num">Value</th><th>Delivery date</th><th>Payment terms</th><th></th></tr></thead>
       <tbody>${list.map(o => `<tr><td><b>${esc(o.so_no || '—')}</b></td><td class="wrap">${esc(o.po_no)}</td><td>${esc(o.po_date)}</td><td class="wrap">${esc(o.customer)}</td>
         <td class="wrap">${o.contact_name ? esc(o.contact_name) + (o.contact_phone ? `<div class="muted small">${esc(o.contact_phone)}</div>` : '') + (o.contact_email ? `<div class="muted small">${esc(o.contact_email)}</div>` : '') : '<span class="muted">—</span>'}</td>
@@ -567,6 +609,7 @@
         <td class="num">${inr(o.value)}</td><td>${o.delivery_date ? `<span class="${o.delivery_date < today() ? 'sla sla-breach' : ''}" title="${o.delivery_date < today() ? 'Delivery date has passed' : 'Expected / committed delivery'}">${esc(o.delivery_date)}</span>` : '<span class="muted">—</span>'}</td><td class="wrap">${esc(o.payment_terms)}</td>
         <td class="actions-cell"><button class="btn small" data-oedit="${o.id}" title="Edit SO / PO / contact / delivery / terms" data-write>Edit</button><button class="btn small" data-odocs="${o.id}" data-no="${esc(o.so_no || o.po_no || o.customer)}">Files</button></td></tr>`).join('') || '<tr class="empty"><td colspan="12">No orders</td></tr>'}</tbody></table></div>
       <div class="muted small" style="margin-top:8px">New orders take the quotation's net value (excl. GST) unless a value is entered when marking Won. The contact person is copied from the quotation; use Edit to change it or to set the delivery date.</div></section>`;
+    $('order-year').onchange = () => { orderYear = $('order-year').value; renderOrders(); };
     const st = $('sup-orders'); if (st) st.onchange = () => { showSup.orders = st.checked; renderOrders(); };
     document.querySelectorAll('[data-orkz]').forEach(b => b.onclick = () => assignRkz('order', [+b.dataset.orkz], b.dataset.cur, renderOrders));
     document.querySelectorAll('[data-oedit]').forEach(b => b.onclick = () => orderForm(list.find(x => x.id == b.dataset.oedit)));
@@ -595,18 +638,21 @@
   }
 
   // ================= LOST =================
+  let lostYear = '';
   async function renderLost() {
-    const all = await api('/api/lost');
+    const all0 = await api('/api/lost');
+    const all = fyApply(all0, r => r.date, lostYear);
     const real = all.filter(r => !r.supporting), nSup = all.length - real.length;
     const list = showSup.lost ? all : real;
     const total = real.reduce((a, r) => a + (r.value || 0), 0);
-    $('view').innerHTML = `<section class="card"><h2>Lost Deals <span class="muted small">(${real.length} · ${money(total)} quoted net value excl. GST)</span></h2>
-      <div class="filter-actions" style="margin-bottom:10px"><a class="btn secondary" href="/api/export/lost.xlsx">Export Excel</a>${nSup ? supToggle('lost', nSup) : ''}</div>
+    $('view').innerHTML = `<section class="card"><h2>Lost Deals <span class="muted small">(${real.length} · ${money(total)} quoted net value excl. GST${lostYear ? ' · ' + fyLabel(+lostYear) : ''})</span></h2>
+      <div class="filter-actions" style="margin-bottom:10px">${fyFilter('lost-year', all0, r => r.date, lostYear)}<a class="btn secondary" href="/api/export/lost.xlsx">Export Excel</a>${nSup ? supToggle('lost', nSup) : ''}</div>
       <div class="table-wrap"><table><thead><tr><th>Quote</th><th>Quoted</th><th>Lost on</th><th>Customer</th><th>End customer</th><th>Product</th><th>Type</th><th>RKZ</th><th class="num">Value</th><th>Reason</th></tr></thead>
       <tbody>${list.map(r => `<tr class="row-critical"><td><button class="link-btn" data-detail="${r.id}">${esc(r.quote_no)}${r.rev ? '-' + esc(r.rev) : ''}</button>${r.enq_no ? `<div class="muted small">${esc(r.enq_no)}</div>` : ''}</td>
         <td>${esc(r.date)}</td><td>${esc((r.lost_on || '').slice(0, 10))}</td><td class="wrap">${esc(r.customer)}</td><td class="wrap">${esc(r.end_customer || '')}</td>
         <td class="wrap">${esc(r.product || '')}</td><td>${typePill(r.type)}</td><td>${esc(r.salesperson || '—')}</td><td class="num">${inr(r.value)}</td><td>${r.lost_reason ? `<div class="reason-clip" title="${esc(r.lost_reason)}">${esc(r.lost_reason)}</div>` : ''}</td></tr>`).join('') || '<tr class="empty"><td colspan="10">No lost deals recorded</td></tr>'}</tbody></table></div>
       <div class="muted small" style="margin-top:8px">A lost deal is a quotation marked Lost (with its reason); it has no PO or SO. Supporting quotations are reference work: they are neither counted nor listed here unless you tick the box above. Click the quotation number for full details and revisions.</div></section>`;
+    $('lost-year').onchange = () => { lostYear = $('lost-year').value; renderLost(); };
     const st = $('sup-lost'); if (st) st.onchange = () => { showSup.lost = st.checked; renderLost(); };
     document.querySelectorAll('[data-detail]').forEach(b => b.onclick = () => quoteDetail(+b.dataset.detail));
   }
