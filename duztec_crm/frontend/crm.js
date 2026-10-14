@@ -276,12 +276,16 @@
       <div class="full"><label>Technical <span class="muted small">— important technical requirement or consideration for this enquiry</span></label><textarea id="f-tech" rows="3" placeholder="e.g. 30 m throw, 415 V 3-ph supply at site, dust load 200 mg/Nm³"></textarea></div>
       <div class="full muted small">The 48-working-hour quotation timer starts when you save this enquiry. Details (including Technical) can be edited later from the enquiry card.</div>
       <div class="full"><button class="btn primary" id="f-save">Save Enquiry</button></div></div>`);
-    $('f-prod').onchange = () => {   // autofill the enquiry fields from the chosen product
+    // Autofill from the chosen product; switching products refreshes each field EVERY time,
+    // until the user manually edits that field (then it is left as they typed).
+    const setAuto = (id, val) => { const el = $(id); if (el.dataset.useredited) return; el.value = val; };
+    $('f-prod').onchange = () => {
       const p = prods.find(x => x.id == $('f-prod').value); if (!p) return;
-      $('f-system').value = p.name || p.code;
-      if (p.specification && !$('f-tech').value.trim()) $('f-tech').value = p.specification;
-      if (p.rate > 0 && !$('f-value').value) $('f-value').value = p.rate;
+      setAuto('f-system', p.name || p.code);
+      setAuto('f-tech', p.specification || '');
+      setAuto('f-value', p.rate > 0 ? p.rate : '');
     };
+    ['f-system', 'f-tech', 'f-value'].forEach(id => $(id).addEventListener('input', () => { $(id).dataset.useredited = '1'; }));
     $('f-cust').onchange = async () => { const cid = $('f-cust').value; if (!cid) return;
       const cs = await api('/api/contacts?customer_id=' + cid);
       $('f-contact').innerHTML = '<option value="">—</option>' + cs.map(c => `<option value="${c.id}">${contactLabel(c)}</option>`).join(''); };
