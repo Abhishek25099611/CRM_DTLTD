@@ -138,13 +138,44 @@ def run(path: str, dry_run: bool = False, force: bool = False) -> dict:
     return result
 
 
+def undo(dry_run: bool = False) -> dict:
+    """Remove a previous MIS 2025-26 import: the quotations it created (tagged in notes) and their
+    line items and follow-ups, then clear the one-time flag so a fresh file can be imported. Only rows
+    carrying the import tag are touched — anything entered by hand is left alone."""
+    con = db.connect()
+    ids = [r["id"] for r in con.execute("SELECT id FROM quotations WHERE notes=?", (SOURCE,))]
+    orders = con.execute("SELECT COUNT(*) FROM orders WHERE quotation_id IN (%s)"
+                         % (",".join("?" * len(ids)) or "NULL"), ids).fetchone()[0] if ids else 0
+    if not dry_run and ids:
+        marks = ",".join("?" * len(ids))
+        con.execute(f"DELETE FROM followups WHERE entity_type='quotation' AND entity_id IN ({marks})", ids)
+        con.execute(f"DELETE FROM quotation_items WHERE quotation_id IN ({marks})", ids)
+        con.execute(f"DELETE FROM orders WHERE quotation_id IN ({marks})", ids)
+        con.execute(f"DELETE FROM quotations WHERE id IN ({marks})", ids)
+        db.log_activity(con, "quotation", None, "mis_import_undone", f"{len(ids)} quotation(s) from {SOURCE}")
+    if not dry_run:
+        con.execute("DELETE FROM meta WHERE key=?", (META_KEY,))
+        con.commit()
+        LOGGER.info("Undid MIS 2025-26 import: removed %d quotation(s) and their items/follow-ups", len(ids))
+    con.close()
+    return {"dry_run": dry_run, "quotations": len(ids), "orders_on_them": orders}
+
+
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
+    dry = "--dry-run" in flags
+    if "--undo" in flags:
+        u = undo(dry_run=dry)
+        print("MIS 2025-26 undo —", "DRY RUN (nothing written)" if dry else "DONE")
+        print(f"  {'would remove' if dry else 'removed'} quotation(s): {u['quotations']}"
+              + (f"  (incl. {u['orders_on_them']} order(s) raised on them)" if u['orders_on_them'] else ""))
+        return 0
     if not args:
-        print('Usage: python -m backend.import_mis_2025 "MIS 2025-26.xlsx" [--dry-run] [--force]')
+        print('Usage: python -m backend.import_mis_2025 "<file.xlsx>" [--dry-run] [--force]')
+        print('       python -m backend.import_mis_2025 --undo [--dry-run]     (remove a prior MIS 2025-26 import)')
         return 2
-    res = run(args[0], dry_run="--dry-run" in flags, force="--force" in flags)
+    res = run(args[0], dry_run=dry, force="--force" in flags)
     print("MIS 2025-26 import —", "DRY RUN (nothing written)" if res.get("dry_run") else "DONE")
     if res.get("skipped"):
         print("  ", res["reason"]); return 0
