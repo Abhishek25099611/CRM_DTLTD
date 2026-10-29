@@ -412,9 +412,9 @@
       <section class="card"><div class="table-wrap"><table><thead>
         <tr><th>No.</th><th>Date</th><th>Customer</th><th>Project spec.</th><th>Product</th><th class="num">Net value (excl. GST)</th><th>Status</th><th>RKZ</th><th>Actions</th></tr></thead>
         <tbody>${shown.map(q => `<tr>
-          <td><button class="link-btn" data-detail="${q.id}">${esc(q.quote_no)}${q.rev ? '-' + q.rev : ''}</button></td><td>${esc(q.date)}</td><td class="wrap">${esc(q.customer)}${q.end_customer_shown ? `<div class="muted small">→ ${esc(q.end_customer_shown)}</div>` : ''}${q.contact ? `<div class="muted small">${esc(q.contact)}</div>` : ''}</td>
+          <td><button class="link-btn" data-detail="${q.id}">${esc(q.quote_no)}${q.rev ? '-' + q.rev : ''}</button></td><td>${esc(q.date)}</td><td class="wrap">${moreCell(q.customer)}${q.end_customer_shown ? `<div class="muted small">→ ${esc(q.end_customer_shown)}</div>` : ''}${q.contact ? `<div class="muted small">${esc(q.contact)}</div>` : ''}</td>
           <td>${typePill(q.type)}</td>
-          <td class="wrap prod-cell" title="${esc(q.product_full || '')}${q.item_count > 1 ? ` (${q.item_count} line items)` : ''}">${q.product_summary ? esc(q.product_summary) : '<span class="muted">—</span>'}${q.product_extra ? ` <span class="muted small">+${q.product_extra}</span>` : ''}</td><td class="num" title="Total incl. GST: ${inr(q.total)}">${inr(q.net)}</td><td class="status-cell">${pill(q.status)}${q.lost_reason ? `<div class="reason-clip" title="${esc(q.lost_reason)}">${esc(q.lost_reason)}</div>` : ''}</td>
+          <td class="wrap prod-cell" title="${esc(q.product_full || '')}${q.item_count > 1 ? ` (${q.item_count} line items)` : ''}">${q.product_summary ? moreCell(q.product_summary) : '<span class="muted">—</span>'}${q.product_extra ? ` <span class="muted small">+${q.product_extra}</span>` : ''}</td><td class="num" title="Total incl. GST: ${inr(q.total)}">${inr(q.net)}</td><td class="status-cell">${pill(q.status)}${q.lost_reason ? `<div class="muted small" style="margin-top:3px">${moreCell(q.lost_reason)}</div>` : ''}</td>
           <td>${esc(q.salesperson || '')}${isAdmin() ? ` <button class="btn small" data-qrkz="${q.id}" data-cur="${esc(q.salesperson || '')}" title="Assign RKZ" data-write>✎</button>` : ''}</td>
           <td class="actions-cell">
             <a class="btn small secondary" target="_blank" href="/api/quotations/${q.id}/print">Print</a>
@@ -673,8 +673,8 @@
       <div class="filter-actions" style="margin-bottom:10px">${fyFilter('lost-year', all0, r => r.date, lostYear)}<a class="btn secondary" href="/api/export/lost.xlsx">Export Excel</a>${nSup ? supToggle('lost', nSup) : ''}</div>
       <div class="table-wrap"><table><thead><tr><th>Quote</th><th>Quoted</th><th>Lost on</th><th>Customer</th><th>End customer</th><th>Product</th><th>Type</th><th>RKZ</th><th class="num">Value</th><th>Reason</th></tr></thead>
       <tbody>${list.map(r => `<tr class="row-critical"><td><button class="link-btn" data-detail="${r.id}">${esc(r.quote_no)}${r.rev ? '-' + esc(r.rev) : ''}</button>${r.enq_no ? `<div class="muted small">${esc(r.enq_no)}</div>` : ''}</td>
-        <td>${esc(r.date)}</td><td>${esc((r.lost_on || '').slice(0, 10))}</td><td class="wrap">${esc(r.customer)}</td><td class="wrap">${esc(r.end_customer || '')}</td>
-        <td class="wrap">${esc(r.product || '')}</td><td>${typePill(r.type)}</td><td>${esc(r.salesperson || '—')}</td><td class="num">${inr(r.value)}</td><td>${r.lost_reason ? `<div class="reason-clip" title="${esc(r.lost_reason)}">${esc(r.lost_reason)}</div>` : ''}</td></tr>`).join('') || '<tr class="empty"><td colspan="10">No lost deals recorded</td></tr>'}</tbody></table></div>
+        <td>${esc(r.date)}</td><td>${esc((r.lost_on || '').slice(0, 10))}</td><td class="wrap">${moreCell(r.customer)}</td><td class="wrap">${moreCell(r.end_customer || '')}</td>
+        <td class="wrap">${moreCell(r.product || '')}</td><td>${typePill(r.type)}</td><td>${esc(r.salesperson || '—')}</td><td class="num">${inr(r.value)}</td><td class="wrap">${moreCell(r.lost_reason)}</td></tr>`).join('') || '<tr class="empty"><td colspan="10">No lost deals recorded</td></tr>'}</tbody></table></div>
       <div class="muted small" style="margin-top:8px">A lost deal is a quotation marked Lost (with its reason); it has no PO or SO. Supporting quotations are reference work: they are neither counted nor listed here unless you tick the box above. Click the quotation number for full details and revisions.</div></section>`;
     $('lost-year').onchange = () => { lostYear = $('lost-year').value; renderLost(); };
     const st = $('sup-lost'); if (st) st.onchange = () => { showSup.lost = st.checked; renderLost(); };
@@ -721,11 +721,11 @@
       <section class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Vendor code</th><th>End customer</th><th>Contacts</th><th>Files</th><th>GSTIN</th><th>State</th><th>Pincode</th><th>Segment</th><th class="num">Enquiries</th><th class="num">Quotes</th><th class="num">Order value</th></tr></thead>
       <tbody>${list.map(c => `<tr><td class="wrap"><b>${esc(c.name)}</b>${isAdmin() ? ` <button class="btn small danger" data-delc="${c.id}" data-name="${esc(c.name)}" title="Delete customer (admin)">🗑</button>` : ''}</td>
         <td>${c.vendor_code ? esc(c.vendor_code) : '<span class="muted">—</span>'} <button class="btn small" data-vcode="${c.id}" title="Edit Duztec vendor code" data-write>✎</button></td>
-        <td class="wrap">${esc(c.end_customer || '—')} <button class="btn small" data-endc="${c.id}" title="Edit end customer" data-write>✎</button></td>
+        <td class="wrap">${c.end_customer ? moreCell(c.end_customer) : '—'} <button class="btn small" data-endc="${c.id}" title="Edit end customer" data-write>✎</button></td>
         <td><button class="btn small secondary" data-contacts="${c.id}">${c.contact_count || 0} contact${c.contact_count === 1 ? '' : 's'}</button></td>
         <td><button class="btn small secondary" data-cdocs="${c.id}">${c.document_count || 0} file${c.document_count === 1 ? '' : 's'}</button></td>
         <td>${esc(c.gstin)}</td><td>${esc(c.state)} <button class="btn small" data-state="${c.id}" title="Edit state" data-write>✎</button></td>
-        <td>${esc(c.pincode || '—')} <button class="btn small" data-pin="${c.id}" title="Edit pincode" data-write>✎</button></td><td>${esc(c.segment)}</td>
+        <td>${esc(c.pincode || '—')} <button class="btn small" data-pin="${c.id}" title="Edit pincode" data-write>✎</button></td><td class="wrap">${moreCell(c.segment)}</td>
         <td class="num">${c.enquiries}</td><td class="num">${c.quotes}</td><td class="num">${inr(c.order_value)}</td></tr>`).join('') || '<tr class="empty"><td colspan="12">No customers match</td></tr>'}</tbody></table></div></section>`;
     customersCache = list.length && !custSearch ? list : customersCache;   // keep the full list cached for dropdowns
     $('btn-c-search').onclick = () => { custSearch = $('c-search').value.trim(); renderCustomers(); };
@@ -819,7 +819,7 @@
     $('view').innerHTML = `<section class="card"><h2>Open Follow-ups <span class="muted small">(${list.length})</span></h2>
       <div class="table-wrap"><table><thead><tr><th>Due</th><th>Ref</th><th>Channel</th><th>Note</th><th></th></tr></thead>
       <tbody>${list.map(f => `<tr><td class="${f.due_date <= today() ? 'due-overdue' : ''}">${esc(f.due_date)}</td>
-        <td class="wrap">${esc(f.ref || f.entity_type + ' #' + f.entity_id)}</td><td>${esc(f.channel)}</td><td class="wrap">${esc(f.note)}</td>
+        <td class="wrap">${moreCell(f.ref || f.entity_type + ' #' + f.entity_id)}</td><td>${esc(f.channel)}</td><td class="wrap">${moreCell(f.note)}</td>
         <td><button class="btn small secondary" data-done="${f.id}" data-write>Done</button></td></tr>`).join('') || '<tr class="empty"><td colspan="5">Nothing due — punch in some enquiries!</td></tr>'}</tbody></table></div></section>`;
     document.querySelectorAll('[data-done]').forEach(b => b.onclick = async () => { try { await api(`/api/followups/${b.dataset.done}/done`, { body: { status: 'done', reason: '' } }); renderFollowups(); } catch (e) { flash(e.message, false); } });
   }
@@ -1045,7 +1045,7 @@
     $('view').innerHTML = `<section class="card filters"><div class="filter-actions">${isAdmin() ? '<button class="btn primary" id="btn-new-p" data-write>+ New Product</button>' : ''}</div>
       <div class="muted small">${list.length} products. Pick a product on a quotation line to fill its description, HSN, unit and default rate; the specification prints on the quotation under "Technical Specifications".</div></section>
       <section class="card"><div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>HSN</th><th>Unit</th><th class="num">Rate ₹</th><th>Specification</th><th class="num">Used on</th><th>Status</th>${isAdmin() ? '<th></th>' : ''}</tr></thead>
-      <tbody>${list.map(p => `<tr class="${p.active ? '' : 'row-critical'}"><td><b>${esc(p.code)}</b></td><td class="wrap">${esc(p.name)}</td><td>${esc(p.hsn)}</td><td>${esc(p.unit)}</td><td class="num">${inr(p.rate)}</td><td class="spec">${esc(p.specification || '')}</td><td class="num">${p.used_on}</td><td>${p.active ? 'Active' : 'Retired'}</td>
+      <tbody>${list.map(p => `<tr class="${p.active ? '' : 'row-critical'}"><td><b>${esc(p.code)}</b></td><td class="wrap">${esc(p.name)}</td><td>${esc(p.hsn)}</td><td>${esc(p.unit)}</td><td class="num">${inr(p.rate)}</td><td class="spec">${moreCell(p.specification || '', 90)}</td><td class="num">${p.used_on}</td><td>${p.active ? 'Active' : 'Retired'}</td>
         ${isAdmin() ? `<td class="actions-cell"><button class="btn small" data-pedit="${p.id}" data-write>Edit</button>${p.active ? `<button class="btn small danger" data-pret="${p.id}" data-write>Retire</button>` : ''}</td>` : ''}</tr>`).join('') || '<tr class="empty"><td colspan="9">No products yet</td></tr>'}</tbody></table></div></section>`;
     const nb = $('btn-new-p'); if (nb) nb.onclick = () => productForm();
     document.querySelectorAll('[data-pedit]').forEach(b => b.onclick = () => productForm(list.find(x => x.id == b.dataset.pedit)));
