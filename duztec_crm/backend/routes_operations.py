@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from . import auth, db
+from .config import SETTINGS
 from .schemas import AssignRkzIn, FollowupIn, OrderEditIn, StatusIn
 from .services import SUPPORTING, _is_admin, _q_totals, _scope
 
@@ -101,10 +102,13 @@ def orders(request: Request):
     sc = _scope(request)
     con = db.connect()
     w = " WHERE (o.responsible=? OR q.salesperson=?)" if sc else ""
+    # Regular sequence: by Sales Order no. (then PO no.), highest first; orders without an SO no. last.
+    order_by = (" ORDER BY CASE WHEN COALESCE(o.so_no,'')='' THEN 1 ELSE 0 END, o.so_no DESC, "
+                "o.po_no DESC, o.id DESC")
     out = db.rows(con.execute(f"""SELECT o.*, c.name customer, q.quote_no, q.rev quote_rev, q.type quote_type,
                                  q.delivery_terms quote_delivery_terms FROM orders o
                                  JOIN customers c ON c.id=o.customer_id
-                                 LEFT JOIN quotations q ON q.id=o.quotation_id{w} ORDER BY o.id DESC""",
+                                 LEFT JOIN quotations q ON q.id=o.quotation_id{w}{order_by}""",
                               (sc, sc) if sc else ()))
     con.close()
     return out
@@ -155,6 +159,26 @@ def edit_order(oid: int, body: OrderEditIn, request: Request):
     return {"ok": True}
 
 
+@router.delete("/api/orders/{oid}")
+def delete_order(oid: int, request: Request):
+    """Admin only. Deletes the order and its attached files and follow-ups. The linked quotation is left
+    as it is (still marked Won) — revise or re-status it separately if needed."""
+    auth.require_admin(request)
+    con = db.connect()
+    o = con.execute("SELECT so_no, po_no FROM orders WHERE id=?", (oid,)).fetchone()
+    if not o:
+        con.close(); raise HTTPException(404, {"error_type": "not_found", "detail": f"order {oid}"})
+    docs = db.rows(con.execute("SELECT stored_name FROM documents WHERE entity_type='order' AND entity_id=?", (oid,)))
+    for d in docs:
+        (SETTINGS.uploads_dir / "order" / str(oid) / d["stored_name"]).unlink(missing_ok=True)
+    con.execute("DELETE FROM documents WHERE entity_type='order' AND entity_id=?", (oid,))
+    con.execute("DELETE FROM followups WHERE entity_type='order' AND entity_id=?", (oid,))
+    con.execute("DELETE FROM orders WHERE id=?", (oid,))
+    db.log_activity(con, "order", oid, "deleted", f"SO {o['so_no'] or '-'} · PO {o['po_no'] or '-'}")
+    con.commit(); con.close()
+    return {"ok": True}
+
+
 @router.get("/api/export/{register}.xlsx")
 def export(register: str, request: Request):
     import openpyxl
@@ -165,8 +189,8 @@ def export(register: str, request: Request):
     O = " AND (o.responsible=? OR q.salesperson=?)" if sc else ""
     queries = {
         "enquiries": (f"SELECT e.enq_no,e.date,e.source,c.name customer,e.system,e.requirement,e.technical,e.expected_value,e.salesperson,e.priority enquiry_type,e.status FROM enquiries e JOIN customers c ON c.id=e.customer_id WHERE 1=1{E} ORDER BY e.id", (sc,) if sc else ()),
-        "quotations": (f"SELECT q.id,q.quote_no,q.rev,q.date,c.name customer,COALESCE(NULLIF(q.end_customer,''),c.end_customer) end_customer,q.type project_spec,q.status,q.lost_reason,q.salesperson FROM quotations q JOIN customers c ON c.id=q.customer_id WHERE q.status!='superseded'{Q} ORDER BY q.id", (sc,) if sc else ()),
-        "orders": (f"SELECT o.po_no,o.so_no,o.po_date,c.name customer,q.quote_no,o.system,o.value,o.responsible,o.contact_name,o.contact_phone,o.contact_email,o.delivery_date,o.payment_terms FROM orders o JOIN customers c ON c.id=o.customer_id LEFT JOIN quotations q ON q.id=o.quotation_id WHERE 1=1{O} ORDER BY o.id", (sc, sc) if sc else ()),
+        "quotations": (f"SELECT q.id,q.quote_no,q.rev,q.date,c.name customer,COALESCE(NULLIF(q.end_customer,''),c.end_customer) end_customer,q.type project_spec,q.status,q.lost_reason,q.salesperson FROM quotations q JOIN customers c ON c.id=q.customer_id WHERE q.status!='superseded'{Q} ORDER BY q.quote_no DESC, q.rev DESC", (sc,) if sc else ()),
+        "orders": (f"SELECT o.po_no,o.so_no,o.po_date,c.name customer,q.quote_no,o.system,o.value,o.responsible,o.contact_name,o.contact_phone,o.contact_email,o.delivery_date,o.payment_terms FROM orders o JOIN customers c ON c.id=o.customer_id LEFT JOIN quotations q ON q.id=o.quotation_id WHERE 1=1{O} ORDER BY CASE WHEN COALESCE(o.so_no,'')='' THEN 1 ELSE 0 END, o.so_no DESC, o.po_no DESC", (sc, sc) if sc else ()),
         "customers": ("SELECT name,vendor_code,gstin,address,state,pincode,segment,end_customer FROM customers ORDER BY name", ()),
         "contacts": ("SELECT c.name customer,ct.name,ct.designation,ct.department,ct.phone,ct.email FROM contacts ct JOIN customers c ON c.id=ct.customer_id ORDER BY c.name, ct.name", ()),
     }

@@ -611,13 +611,18 @@
         <td class="wrap">${esc(o.system || '')}</td><td>${o.quote_no ? `<button class="link-btn" data-odetail="${o.quotation_id}">${esc(o.quote_no)}${o.quote_rev ? '-' + esc(o.quote_rev) : ''}</button>` : ''}${isSup(o) ? '<div>' + typePill('Supporting') + '</div>' : ''}</td>
         <td>${esc(o.responsible || '—')}${isAdmin() ? ` <button class="btn small" data-orkz="${o.id}" data-cur="${esc(o.responsible || '')}" title="Assign RKZ" data-write>✎</button>` : ''}</td>
         <td class="num">${inr(o.value)}</td><td>${o.delivery_date ? `<span class="${o.delivery_date < today() ? 'sla sla-breach' : ''}" title="${o.delivery_date < today() ? 'Delivery date has passed' : 'Expected / committed delivery'}">${esc(o.delivery_date)}</span>` : '<span class="muted">—</span>'}</td><td class="wrap">${esc(o.payment_terms)}</td>
-        <td class="actions-cell"><button class="btn small" data-oedit="${o.id}" title="Edit SO / PO / contact / delivery / terms" data-write>Edit</button><button class="btn small" data-odocs="${o.id}" data-no="${esc(o.so_no || o.po_no || o.customer)}">Files</button></td></tr>`).join('') || '<tr class="empty"><td colspan="12">No orders</td></tr>'}</tbody></table></div>
+        <td class="actions-cell"><button class="btn small" data-oedit="${o.id}" title="Edit SO / PO / contact / delivery / terms" data-write>Edit</button><button class="btn small" data-odocs="${o.id}" data-no="${esc(o.so_no || o.po_no || o.customer)}">Files</button>${isAdmin() ? `<button class="btn small danger" data-odel="${o.id}" data-name="${esc(o.so_no || o.po_no || o.customer)}" title="Delete order (admin)">🗑</button>` : ''}</td></tr>`).join('') || '<tr class="empty"><td colspan="12">No orders</td></tr>'}</tbody></table></div>
       <div class="muted small" style="margin-top:8px">New orders take the quotation's net value (excl. GST) unless a value is entered when marking Won. The contact person is copied from the quotation; use Edit to change it or to set the delivery date.</div></section>`;
     $('order-year').onchange = () => { orderYear = $('order-year').value; renderOrders(); };
     const st = $('sup-orders'); if (st) st.onchange = () => { showSup.orders = st.checked; renderOrders(); };
     document.querySelectorAll('[data-orkz]').forEach(b => b.onclick = () => assignRkz('order', [+b.dataset.orkz], b.dataset.cur, renderOrders));
     document.querySelectorAll('[data-oedit]').forEach(b => b.onclick = () => orderForm(list.find(x => x.id == b.dataset.oedit)));
     document.querySelectorAll('[data-odocs]').forEach(b => b.onclick = () => docsPanel('order', +b.dataset.odocs, 'Order ' + b.dataset.no));
+    document.querySelectorAll('[data-odel]').forEach(b => b.onclick = async () => {
+      if (!confirm('Delete order "' + b.dataset.name + '"?\n\nThis removes the order and its attached files. The quotation stays Won — re-status it separately if needed. This cannot be undone.')) return;
+      try { await api('/api/orders/' + b.dataset.odel, { method: 'DELETE' }); flash('Order deleted'); renderOrders(); }
+      catch (e) { flash(e.message, false); }
+    });
     document.querySelectorAll('[data-odetail]').forEach(b => b.onclick = () => quoteDetail(+b.dataset.odetail));
   }
 

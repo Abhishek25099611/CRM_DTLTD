@@ -53,7 +53,7 @@ def quotations(request: Request, status: str = "", customer_id: int | None = Non
         sql += """ AND (q.quote_no LIKE ? OR c.name LIKE ?
                    OR EXISTS(SELECT 1 FROM quotation_items i WHERE i.quotation_id=q.id AND i.description LIKE ?))"""
         args += [like, like, like]
-    out = [_quote_row(con, r) for r in db.rows(con.execute(sql + " ORDER BY q.id DESC", args))]
+    out = [_quote_row(con, r) for r in db.rows(con.execute(sql + " ORDER BY q.quote_no DESC, q.rev DESC, q.id DESC", args))]
     # What each quotation is for, at a glance: the Products-master code of each line when it is linked,
     # otherwise the typed line description (which is how the products are actually named today).
     if out:
