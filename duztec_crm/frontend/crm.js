@@ -3,6 +3,21 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // Long cell text -> clamped to 2 lines with a "more"/"less" toggle (keeps rows from getting huge).
+  let _clampN = 0;
+  function moreCell(text, max = 70) {
+    const t = String(text ?? '').trim();
+    if (!t) return '';
+    if (t.length <= max) return esc(t);
+    const id = 'cl' + (++_clampN);
+    return `<span class="clamp" id="${id}">${esc(t)}</span> <a href="#" class="more-toggle" data-for="${id}">more</a>`;
+  }
+  document.addEventListener('click', e => {   // one global handler for every "more"/"less" toggle
+    const tgl = e.target.closest('.more-toggle'); if (!tgl) return;
+    e.preventDefault();
+    const el = document.getElementById(tgl.dataset.for); if (!el) return;
+    tgl.textContent = el.classList.toggle('open') ? 'less' : 'more';
+  });
   const today = () => new Date().toISOString().slice(0, 10);
   let CFG = null, view = 'dash', customersCache = [];
 
@@ -606,11 +621,11 @@
     $('view').innerHTML = `<section class="card"><h2>Orders <span class="muted small">(${real.length} · ${money(total)}${orderYear ? ' · ' + fyLabel(+orderYear) : ''})</span></h2>
       <div class="filter-actions" style="margin-bottom:10px">${fyFilter('order-year', all0, orderDate, orderYear)}<a class="btn secondary" href="/api/export/orders.xlsx">Export Excel</a>${nSup ? supToggle('orders', nSup) : ''}</div>
       <div class="table-wrap"><table><thead><tr><th>SO No.</th><th>PO No.</th><th>PO Date</th><th>Customer</th><th>Contact person</th><th>Product</th><th>Quote</th><th>RKZ</th><th class="num">Value</th><th>Delivery date</th><th>Payment terms</th><th></th></tr></thead>
-      <tbody>${list.map(o => `<tr><td><b>${esc(o.so_no || '—')}</b></td><td class="wrap">${esc(o.po_no)}</td><td>${esc(o.po_date)}</td><td class="wrap">${esc(o.customer)}</td>
+      <tbody>${list.map(o => `<tr><td><b>${esc(o.so_no || '—')}</b></td><td class="wrap">${moreCell(o.po_no)}</td><td>${esc(o.po_date)}</td><td class="wrap">${esc(o.customer)}</td>
         <td class="wrap">${o.contact_name ? esc(o.contact_name) + (o.contact_phone ? `<div class="muted small">${esc(o.contact_phone)}</div>` : '') + (o.contact_email ? `<div class="muted small">${esc(o.contact_email)}</div>` : '') : '<span class="muted">—</span>'}</td>
-        <td class="wrap">${esc(o.system || '')}</td><td>${o.quote_no ? `<button class="link-btn" data-odetail="${o.quotation_id}">${esc(o.quote_no)}${o.quote_rev ? '-' + esc(o.quote_rev) : ''}</button>` : ''}${isSup(o) ? '<div>' + typePill('Supporting') + '</div>' : ''}</td>
+        <td class="wrap">${moreCell(o.system || '')}</td><td>${o.quote_no ? `<button class="link-btn" data-odetail="${o.quotation_id}">${esc(o.quote_no)}${o.quote_rev ? '-' + esc(o.quote_rev) : ''}</button>` : ''}${isSup(o) ? '<div>' + typePill('Supporting') + '</div>' : ''}</td>
         <td>${esc(o.responsible || '—')}${isAdmin() ? ` <button class="btn small" data-orkz="${o.id}" data-cur="${esc(o.responsible || '')}" title="Assign RKZ" data-write>✎</button>` : ''}</td>
-        <td class="num">${inr(o.value)}</td><td>${o.delivery_date ? `<span class="${o.delivery_date < today() ? 'sla sla-breach' : ''}" title="${o.delivery_date < today() ? 'Delivery date has passed' : 'Expected / committed delivery'}">${esc(o.delivery_date)}</span>` : '<span class="muted">—</span>'}</td><td class="wrap">${esc(o.payment_terms)}</td>
+        <td class="num">${inr(o.value)}</td><td>${o.delivery_date ? `<span class="${o.delivery_date < today() ? 'sla sla-breach' : ''}" title="${o.delivery_date < today() ? 'Delivery date has passed' : 'Expected / committed delivery'}">${esc(o.delivery_date)}</span>` : '<span class="muted">—</span>'}</td><td class="wrap">${moreCell(o.payment_terms)}</td>
         <td class="actions-cell"><button class="btn small" data-oedit="${o.id}" title="Edit SO / PO / contact / delivery / terms" data-write>Edit</button><button class="btn small" data-odocs="${o.id}" data-no="${esc(o.so_no || o.po_no || o.customer)}">Files</button>${isAdmin() ? `<button class="btn small danger" data-odel="${o.id}" data-name="${esc(o.so_no || o.po_no || o.customer)}" title="Delete order (admin)">🗑</button>` : ''}</td></tr>`).join('') || '<tr class="empty"><td colspan="12">No orders</td></tr>'}</tbody></table></div>
       <div class="muted small" style="margin-top:8px">New orders take the quotation's net value (excl. GST) unless a value is entered when marking Won. The contact person is copied from the quotation; use Edit to change it or to set the delivery date.</div></section>`;
     $('order-year').onchange = () => { orderYear = $('order-year').value; renderOrders(); };
